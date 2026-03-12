@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Post } from '@/types'
 import { Avatar } from '@/components/atoms/Avatar'
 
@@ -11,6 +12,10 @@ interface VideoFeedProps {
   onLike: (postId: string) => void
   onComment: (postId: string) => void
   onShare: (postId: string) => void
+  /** Guardar para ver después (bookmark, no descarga) */
+  onSave?: (postId: string) => void
+  /** 'feed' = relleno blanco como en la imagen; 'videos' = mismo estilo pero relleno azul */
+  variant?: 'feed' | 'videos'
 }
 
 interface VideoPost {
@@ -18,12 +23,18 @@ interface VideoPost {
   videoUrl: string
 }
 
-export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onShare }: VideoFeedProps) {
+export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onShare, onSave, variant = 'feed' }: VideoFeedProps) {
+  const router = useRouter()
   const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const [isPlaying, setIsPlaying] = useState(true)
   const [isMuted, setIsMuted] = useState(false)
+  const [progress, setProgress] = useState(0) // 0..1 progreso del video activo
+  const [duration, setDuration] = useState(0) // duración en segundos del video activo
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([])
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const fullscreenRef = useRef<HTMLDivElement>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
 
   // Filtrar solo posts con videos y extraer la URL del video
   const videoPosts: VideoPost[] = posts
@@ -125,12 +136,25 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
     })
   }, [currentIndex])
 
-  // Prevenir scroll del body cuando está abierto el video feed
+  // Prevenir scroll del body/html cuando está abierto (sin provocar salto de layout)
   useEffect(() => {
-    document.body.style.overflow = 'hidden'
+    const html = document.documentElement
+    const body = document.body
+    html.style.overflow = 'hidden'
+    body.style.overflow = 'hidden'
     return () => {
-      document.body.style.overflow = 'unset'
+      html.style.overflow = ''
+      body.style.overflow = ''
     }
+  }, [])
+
+  // Sincronizar estado de fullscreen con el API (p. ej. Escape)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [])
 
   // Manejar clic en el video para pausar/reproducir
@@ -152,10 +176,43 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
     setIsMuted(!isMuted)
   }
 
+  // Manejar cambio de progreso desde la barra (seek)
+  const handleSeek = (value: number) => {
+    const currentVideo = videoRefs.current[currentIndex]
+    if (!currentVideo || !duration) return
+    const newTime = (value / 100) * duration
+    currentVideo.currentTime = newTime
+    setProgress(value / 100)
+  }
+
+  // Navegar al perfil del autor (por ahora al perfil general, con userId en query)
+  const handleAuthorClick = (authorId: string) => {
+    router.push(`/profile?userId=${authorId}`)
+  }
+
+  // Toggle fullscreen
+  const toggleFullscreen = useCallback(() => {
+    const el = fullscreenRef.current
+    if (!el) return
+    if (!document.fullscreenElement) {
+      el.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {})
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {})
+    }
+  }, [])
+
+  // Cerrar menú al hacer clic fuera
+  useEffect(() => {
+    if (!showMoreMenu) return
+    const close = () => setShowMoreMenu(false)
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [showMoreMenu])
+
   if (videoPosts.length === 0) return null
 
   return (
-    <div className="fixed inset-0 bg-black z-50">
+    <div ref={fullscreenRef} className="fixed inset-0 bg-black z-40">
       {/* Botón de cerrar */}
       <button
         onClick={onClose}
@@ -169,7 +226,7 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
       {/* Contenedor de videos con scroll nativo */}
       <div 
         ref={scrollContainerRef}
-        className="w-full h-screen overflow-y-scroll scrollbar-hide"
+        className="w-full h-screen overflow-y-scroll scrollbar-hide pb-16"
         style={{ 
           scrollSnapType: 'y mandatory',
           WebkitOverflowScrolling: 'touch',
@@ -185,45 +242,61 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
             <div
               key={post.id}
               className="relative w-full flex-shrink-0 snap-start flex items-center justify-center bg-black"
-              style={{ 
+              style={{
                 height: '100vh',
                 width: '100%',
-                overflow: 'hidden'
+                overflow: 'hidden',
               }}
             >
-              <video
-                ref={(el) => {
-                  videoRefs.current[index] = el
-                }}
-                src={videoUrl}
-                className="w-full h-full object-contain"
-                style={{ 
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain'
-                }}
-                loop
-                playsInline
-                muted={isMuted}
-                onClick={handleVideoClick}
-                onPlay={() => {
-                  if (isActive) setIsPlaying(true)
-                }}
-                onPause={() => {
-                  if (isActive) setIsPlaying(false)
-                }}
-              />
+              {/* Contenedor tipo móvil centrado (como TikTok/Facebook video) */}
+              <div className="relative w-full max-w-[420px] max-h-[82vh] aspect-[9/16] bg-black flex items-center justify-center">
+                <video
+                  ref={(el) => {
+                    videoRefs.current[index] = el
+                  }}
+                  src={videoUrl}
+                  className="w-full h-full object-contain bg-black"
+                  loop
+                  playsInline
+                  muted={isMuted}
+                  onClick={handleVideoClick}
+                  onLoadedMetadata={(e) => {
+                    if (index === currentIndex) {
+                      const d = e.currentTarget.duration || 0
+                      setDuration(d)
+                      setProgress(0)
+                    }
+                  }}
+                  onTimeUpdate={(e) => {
+                    if (index === currentIndex) {
+                      const d = e.currentTarget.duration || 0
+                      const t = e.currentTarget.currentTime
+                      if (d > 0) {
+                        setDuration(d)
+                        setProgress(t / d)
+                      }
+                    }
+                  }}
+                  onPlay={() => {
+                    if (isActive) setIsPlaying(true)
+                  }}
+                  onPause={() => {
+                    if (isActive) setIsPlaying(false)
+                  }}
+                />
+              </div>
 
-              {/* Overlay con información del autor y reacciones */}
-              <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
-                <div className="flex flex-col gap-3">
+              {/* Overlay con información del autor, reacciones y barra de progreso */}
+              <div className="absolute inset-x-0 bottom-0 px-4 pt-4 pb-16 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
+                <div className="max-w-[420px] mx-auto flex flex-col gap-3">
                   {/* Reacciones horizontales arriba */}
-                  <div className="flex items-center gap-3 pointer-events-auto">
+                  <div className="flex items-center gap-2 pointer-events-auto">
                     <button
+                      type="button"
                       onClick={() => onLike(post.id)}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-full transition-all ${
-                        post.isLiked 
-                          ? 'bg-red-500/70' 
+                      className={`flex items-center gap-1.5 px-3 h-6 rounded-full transition-all ${
+                        post.isLiked
+                          ? 'bg-red-500/70'
                           : 'bg-black/50'
                       }`}
                     >
@@ -241,13 +314,14 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
                         />
                       </svg>
                       <span className="text-white text-sm font-medium">
-                        {post._count?.likes || 0}
+                        {(post as any).likesCount ?? post._count?.likes ?? 0}
                       </span>
                     </button>
 
                     <button
+                      type="button"
                       onClick={() => onComment(post.id)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-black/50 transition-all"
+                      className="flex items-center gap-1.5 px-3 h-6 rounded-full bg-black/50 transition-all"
                     >
                       <svg
                         className="w-5 h-5 text-white"
@@ -263,13 +337,14 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
                         />
                       </svg>
                       <span className="text-white text-sm font-medium">
-                        {post._count?.comments || 0}
+                        {(post as any).commentsCount ?? post._count?.comments ?? 0}
                       </span>
                     </button>
 
                     <button
+                      type="button"
                       onClick={() => onShare(post.id)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-black/50 transition-all"
+                      className="flex items-center gap-1.5 px-3 h-6 rounded-full bg-black/50 transition-all"
                     >
                       <svg
                         className="w-5 h-5 text-white"
@@ -288,42 +363,203 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
                     </button>
                   </div>
 
-                  {/* Información del autor abajo */}
-                  <div className="flex items-center gap-3">
-                    <Avatar src={post.author.image} alt={authorName} size="sm" />
-                    <div>
-                      <p className="text-white font-semibold text-sm">{authorName}</p>
-                    </div>
+                  {/* Información del autor: en videos, misma fila que los botones (perfil izquierda, botones derecha) */}
+                  <div className={`flex items-center pointer-events-auto ${variant === 'videos' ? 'justify-between gap-3' : ''}`}>
+                    <button
+                      type="button"
+                      onClick={() => handleAuthorClick(post.author.id)}
+                      className="flex items-center gap-3"
+                    >
+                      <Avatar src={post.author.image} alt={authorName} size="sm" />
+                      <div>
+                        <p className="text-white font-semibold text-sm">{authorName}</p>
+                      </div>
+                    </button>
+                    {/* En sección videos: botones a la derecha, misma fila que el perfil */}
+                    {variant === 'videos' && isActive && (
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={toggleMute}
+                          className="w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-all"
+                          aria-label={isMuted ? 'Activar sonido' : 'Silenciar'}
+                        >
+                          {isMuted ? (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                            </svg>
+                          ) : (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                            </svg>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={toggleFullscreen}
+                          className="w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-all"
+                          aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+                        >
+                          {isFullscreen ? (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+                            </svg>
+                          ) : (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                            </svg>
+                          )}
+                        </button>
+                        <div className="relative ml-auto">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setShowMoreMenu(v => !v) }}
+                            className="w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-all"
+                            aria-label="Más opciones"
+                          >
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                              <circle cx="12" cy="5" r="1.5" />
+                              <circle cx="12" cy="12" r="1.5" />
+                              <circle cx="12" cy="19" r="1.5" />
+                            </svg>
+                          </button>
+                          {showMoreMenu && (
+                            <div
+                              className="absolute bottom-full right-0 mb-2 py-1 min-w-[160px] bg-gray-900/95 rounded-lg shadow-xl border border-gray-700"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => { onSave?.(post.id); setShowMoreMenu(false) }}
+                                className="w-full px-4 py-2 text-left text-white text-sm hover:bg-gray-700/80 flex items-center gap-2"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                </svg>
+                                Guardar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { onShare(post.id); setShowMoreMenu(false) }}
+                                className="w-full px-4 py-2 text-left text-white text-sm hover:bg-gray-700/80 flex items-center gap-2"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                </svg>
+                                Compartir
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { handleAuthorClick(post.author.id); setShowMoreMenu(false) }}
+                                className="w-full px-4 py-2 text-left text-white text-sm hover:bg-gray-700/80 flex items-center gap-2"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                                Ver perfil
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Barra de progreso debajo del perfil */}
+                  {isActive && (
+                    <div className="w-full pointer-events-auto -mt-1 flex flex-col gap-2">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={0.5}
+                        value={progress * 100}
+                        onChange={(e) => handleSeek(Number(e.target.value))}
+                        className={`video-progress video-progress--${variant} w-full cursor-pointer`}
+                        style={
+                          {
+                            '--progress': `${progress * 100}%`,
+                            '--fill-color': variant === 'videos' ? '#0ea5e9' : 'rgba(255, 255, 255, 0.9)',
+                          } as React.CSSProperties
+                        }
+                        aria-label="Progreso del video"
+                      />
+                      {/* En feed: controles debajo de la barra; en videos ya están al lado del perfil */}
+                      {variant === 'feed' && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={toggleMute}
+                            className="w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-all"
+                            aria-label={isMuted ? 'Activar sonido' : 'Silenciar'}
+                          >
+                            {isMuted ? (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                              </svg>
+                            ) : (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                              </svg>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={toggleFullscreen}
+                            className="w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-all"
+                            aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+                          >
+                            {isFullscreen ? (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+                              </svg>
+                            ) : (
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                              </svg>
+                            )}
+                          </button>
+                          <div className="relative ml-auto">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setShowMoreMenu(v => !v) }}
+                              className="w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-all"
+                              aria-label="Más opciones"
+                            >
+                              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="5" r="1.5" />
+                                <circle cx="12" cy="12" r="1.5" />
+                                <circle cx="12" cy="19" r="1.5" />
+                              </svg>
+                            </button>
+                            {showMoreMenu && (
+                              <div
+                                className="absolute bottom-full right-0 mb-2 py-1 min-w-[160px] bg-gray-900/95 rounded-lg shadow-xl border border-gray-700"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button type="button" onClick={() => { onSave?.(post.id); setShowMoreMenu(false) }} className="w-full px-4 py-2 text-left text-white text-sm hover:bg-gray-700/80 flex items-center gap-2">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
+                                  Guardar
+                                </button>
+                                <button type="button" onClick={() => { onShare(post.id); setShowMoreMenu(false) }} className="w-full px-4 py-2 text-left text-white text-sm hover:bg-gray-700/80 flex items-center gap-2">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                                  Compartir
+                                </button>
+                                <button type="button" onClick={() => { handleAuthorClick(post.author.id); setShowMoreMenu(false) }} className="w-full px-4 py-2 text-left text-white text-sm hover:bg-gray-700/80 flex items-center gap-2">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                  Ver perfil
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
-
-              {/* Botón de mute en la esquina superior derecha */}
-              {isActive && (
-                <button
-                  onClick={toggleMute}
-                  className="absolute top-16 right-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-all z-10 pointer-events-auto"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5 5 0 010 7.072M13 3L8 8H3v8h5l5 5V3z"
-                    />
-                    {isMuted && (
-                      <line
-                        x1="4"
-                        y1="4"
-                        x2="20"
-                        y2="20"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                      />
-                    )}
-                  </svg>
-                </button>
-              )}
 
               {/* Indicador de pausa/reproducción */}
               {isActive && !isPlaying && (
@@ -339,6 +575,71 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
           )
         })}
       </div>
+
+      <style jsx global>{`
+        /* Barra de progreso tipo reels: pista oscura, relleno según variant, thumb blanco */
+        .video-progress {
+          -webkit-appearance: none;
+          appearance: none;
+          background: transparent;
+          outline: none;
+          border: 0;
+          height: 18px; /* área de toque cómoda */
+          padding: 0;
+          margin: 0;
+        }
+        .video-progress::-webkit-slider-runnable-track {
+          height: 4px;
+          background: linear-gradient(
+            to right,
+            var(--fill-color, rgba(255, 255, 255, 0.9)) 0%,
+            var(--fill-color, rgba(255, 255, 255, 0.9)) var(--progress, 0%),
+            rgba(255, 255, 255, 0.35) var(--progress, 0%),
+            rgba(255, 255, 255, 0.35) 100%
+          );
+          border-radius: 9999px;
+          border: 0;
+        }
+        .video-progress::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 14px;
+          height: 14px;
+          border-radius: 9999px;
+          background: #fff; /* thumb blanco como en la imagen */
+          border: 0;
+          box-shadow: none;
+          margin-top: -5px; /* centra el thumb con la pista de 4px */
+        }
+        .video-progress:focus {
+          outline: none;
+        }
+
+        /* Firefox */
+        .video-progress::-moz-range-track {
+          height: 4px;
+          background: linear-gradient(
+            to right,
+            var(--fill-color, rgba(255, 255, 255, 0.9)) 0%,
+            var(--fill-color, rgba(255, 255, 255, 0.9)) var(--progress, 0%),
+            rgba(255, 255, 255, 0.35) var(--progress, 0%),
+            rgba(255, 255, 255, 0.35) 100%
+          );
+          border-radius: 9999px;
+          border: 0;
+        }
+        .video-progress::-moz-range-thumb {
+          width: 14px;
+          height: 14px;
+          border-radius: 9999px;
+          background: #fff;
+          border: 0;
+          box-shadow: none;
+        }
+        .video-progress::-moz-focus-outer {
+          border: 0;
+        }
+      `}</style>
     </div>
   )
 }

@@ -59,6 +59,12 @@ export default function FeedPage() {
     setSelectedPostForShare(postId)
   }, [])
 
+  const handleSave = useCallback((postId: string) => {
+    const saved = JSON.parse(localStorage.getItem('saved-posts') || '[]') as string[]
+    if (saved.includes(postId)) return
+    localStorage.setItem('saved-posts', JSON.stringify([...saved, postId]))
+  }, [])
+
   const handleCommentAdded = useCallback(async () => {
     if (selectedPostForComments) {
       // Refrescar el post para actualizar el contador de comentarios
@@ -71,7 +77,7 @@ export default function FeedPage() {
     console.log('Menu for post:', postId)
   }, [])
 
-  // Filtrar y ordenar posts con videos por popularidad
+  // Filtrar y ordenar posts con videos por popularidad (para el feed de videos tipo TikTok)
   const videoPosts = useMemo(() => {
     return posts
       .map((post, index) => {
@@ -98,6 +104,80 @@ export default function FeedPage() {
         return scoreB - scoreA
       })
       .map(item => item.post)
+  }, [posts])
+
+  // Ordenar el feed principal con enfoque tipo Instagram,
+  // priorizando videos y testimonios, pero permitiendo que
+  // algunas imágenes muy virales se mezclen entre ellos.
+  const orderedPosts = useMemo(() => {
+    if (!posts || posts.length === 0) return []
+
+    const isVideoPost = (post: Post): boolean => {
+      if (post.mediaType === 'video' && post.mediaUrl) {
+        return true
+      }
+      if (post.mediaUrls && post.mediaUrls.length > 0) {
+        return post.mediaUrls.some((url) => {
+          const lowerUrl = url.toLowerCase()
+          return (
+            lowerUrl.includes('.mp4') ||
+            lowerUrl.includes('.webm') ||
+            lowerUrl.includes('video') ||
+            lowerUrl.includes('gtv-videos-bucket')
+          )
+        })
+      }
+      return false
+    }
+
+    const isTestimonyPost = (post: Post): boolean =>
+      (post as any).postType === 'testimony'
+
+    // Score similar al de usePosts: popularidad + tiempo
+    const getBasePopularityScore = (post: Post): number => {
+      const likes = post._count?.likes || 0
+      const comments = post._count?.comments || 0
+      const now = Date.now()
+      const createdAt = new Date(post.createdAt).getTime()
+      const hoursSinceCreation = (now - createdAt) / (1000 * 60 * 60)
+
+      const engagementScore = likes * 2 + comments * 3
+      const timeFactor = Math.max(0.1, 1 / (1 + hoursSinceCreation / 24))
+
+      return engagementScore * (1 + timeFactor)
+    }
+
+    // Clonar para no mutar el array original
+    const cloned = [...posts]
+
+    cloned.sort((a, b) => {
+      const aIsVideo = isVideoPost(a) ? 1 : 0
+      const bIsVideo = isVideoPost(b) ? 1 : 0
+
+      const aIsTestimony = isTestimonyPost(a) ? 1 : 0
+      const bIsTestimony = isTestimonyPost(b) ? 1 : 0
+
+      const baseScoreA = getBasePopularityScore(a)
+      const baseScoreB = getBasePopularityScore(b)
+
+      // Bonus fuerte para videos (enfoque de la app)
+      // y bonus adicional para testimonios
+      const bonusVideo = 1.4
+      const bonusTestimony = 1.15
+
+      const finalScoreA =
+        baseScoreA *
+        (aIsVideo ? bonusVideo : 1) *
+        (aIsTestimony ? bonusTestimony : 1)
+      const finalScoreB =
+        baseScoreB *
+        (bIsVideo ? bonusVideo : 1) *
+        (bIsTestimony ? bonusTestimony : 1)
+
+      return finalScoreB - finalScoreA
+    })
+
+    return cloned
   }, [posts])
 
   const handleVideoClick = useCallback((postId: string) => {
@@ -192,30 +272,18 @@ export default function FeedPage() {
               </svg>
             </button>
             <Link
-              href="/feed/create"
-              className="w-10 h-10 flex items-center justify-center rounded-full bg-gradient-to-tr from-primary-500 via-primary-600 to-purple-600 text-white hover:opacity-90 hover:scale-110 transition-all shadow-lg shadow-primary-500/30"
+              href="/events"
+              className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 dark:bg-dark-hover text-gray-700 dark:text-white hover:bg-gray-200 dark:hover:bg-dark-border hover:scale-110 transition-all"
             >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M12 4v16m8-8H4"
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
                 />
               </svg>
             </Link>
-            <button className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 dark:bg-dark-hover text-gray-700 dark:text-white hover:bg-gray-200 dark:hover:bg-dark-border hover:scale-110 transition-all relative">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-ping"></span>
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-            </button>
           </div>
         </header>
 
@@ -229,7 +297,7 @@ export default function FeedPage() {
         {/* Stories Section */}
         <StoriesSection />
 
-        {/* Posts */}
+        {/* Posts (feed principal priorizando videos y testimonios) */}
         <InfiniteScroll onLoadMore={loadMore} hasMore={hasMore} loading={loading}>
           {loading && posts.length === 0 ? (
             <>
@@ -238,7 +306,7 @@ export default function FeedPage() {
               <PostCardSkeleton />
             </>
           ) : (
-            posts.map((post, index) => (
+            orderedPosts.map((post, index) => (
               <div key={post.id}>
                 <PostCard
                   id={post.id}
@@ -288,6 +356,8 @@ export default function FeedPage() {
           onLike={handleLike}
           onComment={handleComment}
           onShare={handleShare}
+          onSave={handleSave}
+          variant="feed"
         />
       )}
 

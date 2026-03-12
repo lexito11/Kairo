@@ -52,40 +52,41 @@ export function ImageCarousel({ items, alt = 'Post media', likesCount = 0, comme
   if (items.length === 0) return null
 
   return (
-    <div className="relative w-full bg-dark-surface group">
+    <div className="relative w-full aspect-[4/5] overflow-hidden rounded-[inherit] bg-dark-surface group">
       {/* Scroll Container */}
       <div
         ref={scrollContainerRef}
-        className="w-full overflow-x-scroll overflow-y-visible snap-x snap-mandatory scrollbar-hide"
+        className="w-full h-full overflow-x-scroll overflow-y-visible snap-x snap-mandatory scrollbar-hide"
         style={{
           WebkitOverflowScrolling: 'touch',
         }}
       >
-        <div className="flex">
+        <div className="flex h-full">
           {items.map((item, index) => (
             <div
               key={index}
-              className="relative w-full flex-shrink-0 snap-start bg-black"
+              className="relative w-full h-full flex-shrink-0 snap-start bg-black"
             >
               {item.type === 'video' ? (
                 <div 
-                  className="w-full cursor-pointer bg-black"
+                  className="w-full h-full cursor-pointer bg-black"
                   onClick={onVideoClick}
                 >
                   <VideoPlayer
                     src={item.url}
-                    className="w-full max-h-[65vh] object-cover"
+                    fit="contain"
+                    className=""
                   />
                 </div>
               ) : (
                 <div 
-                  className="relative w-full cursor-pointer bg-black"
+                  className="relative w-full h-full cursor-pointer bg-black"
                   onClick={onImageClick}
                 >
                   <img
                     src={item.url}
                     alt={`${alt} ${index + 1}`}
-                    className="w-full max-h-[65vh] object-cover"
+                    className="absolute inset-0 w-full h-full object-cover"
                     loading={index === 0 ? 'eager' : 'lazy'}
                   />
                 </div>

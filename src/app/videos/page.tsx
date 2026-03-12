@@ -1,29 +1,64 @@
 'use client'
 
-import { usePosts } from '@/hooks/usePosts'
 import { BottomNavigation } from '@/components/templates/BottomNavigation'
 import { VideoFeed } from '@/components/organisms/VideoFeed'
 import { CommentsModal } from '@/components/organisms/CommentsModal'
 import { ShareModal } from '@/components/organisms/ShareModal'
-import { useSession } from 'next-auth/react'
-import { useCallback, useState, useMemo, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Post } from '@/types'
 
+type VideoPost = Post & {
+  likesCount?: number
+  commentsCount?: number
+}
+
+interface RecommendedVideosResponse {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+  videos: VideoPost[]
+}
+
 export default function VideosPage() {
-  const { data: session } = useSession()
   const searchParams = useSearchParams()
-  const { posts, loading, error, likePost, refreshPost } = usePosts()
+  const [videos, setVideos] = useState<VideoPost[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [selectedVideoIndex, setSelectedVideoIndex] = useState<number | null>(null)
   const [selectedPostForComments, setSelectedPostForComments] = useState<string | null>(null)
   const [selectedPostForShare, setSelectedPostForShare] = useState<string | null>(null)
 
-  const handleLike = useCallback(
-    (postId: string) => {
-      likePost(postId)
-    },
-    [likePost]
-  )
+  const handleLike = useCallback((postId: string) => {
+    // Actualización optimista en el estado local
+    setVideos((prev) =>
+      prev.map((post) => {
+        if (post.id !== postId) return post
+        const currentLikes =
+          (post.likesCount ?? post._count?.likes ?? 0)
+        const currentlyLiked = post.isLiked ?? false
+        const newLikes = currentLikes + (currentlyLiked ? -1 : 1)
+
+        return {
+          ...post,
+          isLiked: !currentlyLiked,
+          likesCount: Math.max(0, newLikes),
+          _count: {
+            ...(post._count || { comments: 0, likes: 0 }),
+            likes: Math.max(0, newLikes),
+          },
+        }
+      })
+    )
+
+    // Llamada real al backend (si falla, solo logueamos por ahora)
+    fetch(`/api/posts/${postId}/like`, {
+      method: 'POST',
+    }).catch((err) => {
+      console.error('Error al dar like desde videos:', err)
+    })
+  }, [])
 
   const handleComment = useCallback((postId: string) => {
     setSelectedPostForComments(postId)
@@ -33,48 +68,60 @@ export default function VideosPage() {
     setSelectedPostForShare(postId)
   }, [])
 
-  const handleCommentAdded = useCallback(async () => {
-    if (selectedPostForComments) {
-      await refreshPost(selectedPostForComments)
-    }
-  }, [selectedPostForComments, refreshPost])
+  const handleSave = useCallback((postId: string) => {
+    const saved = JSON.parse(localStorage.getItem('saved-posts') || '[]') as string[]
+    if (saved.includes(postId)) return
+    localStorage.setItem('saved-posts', JSON.stringify([...saved, postId]))
+  }, [])
 
-  // Filtrar posts con videos y ordenarlos por popularidad
-  const videoPosts = useMemo(() => {
-    return posts
-      .map((post, index) => {
-        // Verificar si el post tiene video
-        let hasVideo = false
-        if (post.mediaType === 'video' && post.mediaUrl) {
-          hasVideo = true
-        } else if (post.mediaUrls && post.mediaUrls.length > 0) {
-          hasVideo = post.mediaUrls.some(url => {
-            const lowerUrl = url.toLowerCase()
-            return lowerUrl.includes('.mp4') || 
-                   lowerUrl.includes('.webm') || 
-                   lowerUrl.includes('video') ||
-                   lowerUrl.includes('gtv-videos-bucket')
-          })
+  const handleCommentAdded = useCallback(async () => {
+    // Aquí podrías volver a pedir el ranking o actualizar un solo post si lo necesitas
+  }, [])
+
+  // Cargar videos recomendados desde el backend
+  useEffect(() => {
+    let cancelled = false
+
+    const load = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+
+        const res = await fetch('/api/videos/recommended?limit=20&page=1')
+        if (!res.ok) {
+          throw new Error('Error al cargar videos recomendados')
         }
-        return hasVideo ? { post, originalIndex: index } : null
-      })
-      .filter((item): item is { post: Post; originalIndex: number } => item !== null)
-      .sort((a, b) => {
-        // Ordenar por popularidad (likes + comentarios)
-        const scoreA = (a.post._count?.likes || 0) + (a.post._count?.comments || 0)
-        const scoreB = (b.post._count?.likes || 0) + (b.post._count?.comments || 0)
-        return scoreB - scoreA
-      })
-      .map(item => item.post)
-  }, [posts])
+        const data: RecommendedVideosResponse = await res.json()
+        if (!cancelled) {
+          setVideos(data.videos || [])
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : 'Error al cargar videos recomendados'
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Abrir automáticamente el VideoFeed cuando se carga la página
   useEffect(() => {
-    if (!loading && videoPosts.length > 0) {
+    if (!loading && videos.length > 0) {
       // Si hay un postId en la URL, buscar ese video específico
       const postIdFromUrl = searchParams.get('postId')
       if (postIdFromUrl) {
-        const index = videoPosts.findIndex(p => p.id === postIdFromUrl)
+        const index = videos.findIndex(p => p.id === postIdFromUrl)
         if (index !== -1) {
           setSelectedVideoIndex(index)
           return
@@ -83,7 +130,7 @@ export default function VideosPage() {
       // Si no hay postId o no se encontró, abrir el primer video (más popular)
       setSelectedVideoIndex(0)
     }
-  }, [loading, videoPosts.length, videoPosts, searchParams])
+  }, [loading, videos.length, videos, searchParams])
 
   const handleCloseVideoFeed = useCallback(() => {
     setSelectedVideoIndex(null)
@@ -92,7 +139,7 @@ export default function VideosPage() {
   return (
     <div className="h-screen bg-gray-200 dark:bg-dark-bg flex flex-col overflow-hidden">
       {/* Mostrar mensaje de carga o error solo si no hay VideoFeed abierto y no hay videos */}
-      {selectedVideoIndex === null && (loading || videoPosts.length === 0) && (
+      {selectedVideoIndex === null && (loading || videos.length === 0) && (
         <div className="max-w-md mx-auto w-full flex flex-col h-full">
           {/* Header */}
           <header className="flex items-center justify-between px-4 py-2 bg-white/95 dark:bg-dark-bg/95 backdrop-blur-md border-b border-gray-200 dark:border-dark-border flex-shrink-0">
@@ -130,18 +177,20 @@ export default function VideosPage() {
         </div>
       )}
 
-      {/* Bottom Navigation - Solo mostrar si no hay VideoFeed abierto */}
-      {selectedVideoIndex === null && <BottomNavigation />}
+      {/* Bottom Navigation - siempre visible en esta sección */}
+      <BottomNavigation />
 
       {/* Video Feed Modal */}
-      {selectedVideoIndex !== null && videoPosts.length > 0 && (
+      {selectedVideoIndex !== null && videos.length > 0 && (
         <VideoFeed
-          posts={videoPosts}
+          posts={videos}
           initialIndex={selectedVideoIndex}
           onClose={handleCloseVideoFeed}
           onLike={handleLike}
           onComment={handleComment}
           onShare={handleShare}
+          onSave={handleSave}
+          variant="videos"
         />
       )}
 

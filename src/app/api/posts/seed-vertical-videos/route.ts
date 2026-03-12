@@ -25,6 +25,16 @@ const postsWithMedia = [
     videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
     imageUrl: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1080&h=1350&fit=crop',
   },
+  {
+    content: 'Noche de alabanza en la iglesia. Dios se movió de una forma poderosa en cada canción. 🎵🔥',
+    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+    imageUrl: 'https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=1080&h=1350&fit=crop',
+  },
+  {
+    content: 'Jóvenes adorando juntos en retiro espiritual. Que cada generación conozca a Jesús. 🙌',
+    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
+    imageUrl: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=1080&h=1350&fit=crop',
+  },
 ]
 
 export async function POST(request: NextRequest) {
@@ -49,7 +59,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Crear los tres posts con video e imagen (tipo celular vertical)
+    // Crear posts con video e imagen (tipo celular vertical)
     const createdPosts = []
     for (const postData of postsWithMedia) {
       // Crear el post con el video como mediaUrl principal
@@ -92,7 +102,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      message: 'Tres posts con videos verticales creados exitosamente',
+      message: 'Cinco posts con videos verticales creados exitosamente',
       posts: createdPosts,
     })
   } catch (error) {

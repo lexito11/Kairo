@@ -5,9 +5,10 @@ import { useRef, useEffect, useState } from 'react'
 interface VideoPlayerProps {
   src: string
   className?: string
+  fit?: 'cover' | 'contain'
 }
 
-export function VideoPlayer({ src, className = '' }: VideoPlayerProps) {
+export function VideoPlayer({ src, className = '', fit = 'contain' }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isMuted, setIsMuted] = useState(false)
 
@@ -99,7 +100,9 @@ export function VideoPlayer({ src, className = '' }: VideoPlayerProps) {
         loop
         playsInline
         muted
-        className={className}
+        className={`absolute inset-0 w-full h-full ${
+          fit === 'cover' ? 'object-cover' : 'object-contain bg-black'
+        } ${className}`}
       />
       
       {/* Botón de mute en la esquina */}

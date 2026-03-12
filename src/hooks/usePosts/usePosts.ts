@@ -2,23 +2,64 @@ import { useState, useEffect, useCallback } from 'react'
 import { Post } from '@/types'
 import { PaginationInfo } from './types'
 
-// Función para calcular el score de popularidad
+// Función para calcular el score de popularidad (inspirado en Instagram)
 function calculatePopularityScore(post: Post): number {
-  const likes = post._count?.likes || 0
-  const comments = post._count?.comments || 0
+  const likes = post._count?.likes || post.likesCount || 0
+  const comments = post._count?.comments || post.commentsCount || 0
+  const shares =
+    (post as any)._count?.shares ||
+    (post as any).sharesCount ||
+    0
+  const saves =
+    (post as any)._count?.saves ||
+    (post as any).savesCount ||
+    0
+
   const now = Date.now()
   const createdAt = new Date(post.createdAt).getTime()
   const hoursSinceCreation = (now - createdAt) / (1000 * 60 * 60)
   
-  // Score base: likes y comentarios
-  const engagementScore = likes * 2 + comments * 3
+  // Jerarquía de interacciones:
+  // shares > saves > comentarios > likes
+  const engagementScore =
+    likes * 1 +
+    comments * 3 +
+    shares * 6 +
+    saves * 4
   
   // Factor de tiempo: posts más recientes tienen un boost
-  // Decae exponencialmente con el tiempo
+  // Decae conforme pasan las horas
   const timeFactor = Math.max(0.1, 1 / (1 + hoursSinceCreation / 24))
+
+  // Bonus por formato (video) y tipo (testimonio)
+  const isVideo = (() => {
+    if (post.mediaType === 'video' && post.mediaUrl) return true
+    if (post.mediaUrls && post.mediaUrls.length > 0) {
+      return post.mediaUrls.some((url) => {
+        const lowerUrl = url.toLowerCase()
+        return (
+          lowerUrl.includes('.mp4') ||
+          lowerUrl.includes('.webm') ||
+          lowerUrl.includes('video') ||
+          lowerUrl.includes('gtv-videos-bucket')
+        )
+      })
+    }
+    return false
+  })()
+
+  const isTestimony = (post as any).postType === 'testimony'
+
+  const bonusVideo = 1.5
+  const bonusTestimony = 1.15
   
   // Score final combinado
-  return engagementScore * (1 + timeFactor)
+  return (
+    engagementScore *
+    (1 + timeFactor) *
+    (isVideo ? bonusVideo : 1) *
+    (isTestimony ? bonusTestimony : 1)
+  )
 }
 
 // Función para ordenar posts aleatoriamente basado en popularidad

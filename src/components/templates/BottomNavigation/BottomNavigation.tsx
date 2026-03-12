@@ -17,20 +17,6 @@ export function BottomNavigation() {
       ),
     },
     {
-      href: '/events',
-      label: 'Eventos',
-      icon: (
-        <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-          />
-        </svg>
-      ),
-    },
-    {
       href: '/videos',
       label: 'Videos',
       icon: (
@@ -39,6 +25,16 @@ export function BottomNavigation() {
           <path d="M10 8l6 4-6 4V8z" fill="white"/>
         </svg>
       ),
+    },
+    {
+      href: '/feed/create',
+      label: 'Publicar',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+        </svg>
+      ),
+      isPublish: true,
     },
     {
       href: '/chat',
@@ -70,38 +66,47 @@ export function BottomNavigation() {
     if (href === '/feed') {
       return pathname === '/' || pathname === '/feed'
     }
-    if (href === '/events') {
-      return pathname === '/events'
-    }
     if (href === '/videos') {
       return pathname === '/videos'
+    }
+    if (href === '/feed/create') {
+      return pathname === '/feed/create'
     }
     return pathname?.startsWith(href)
   }
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 border-t border-gray-200 dark:border-dark-border bg-white/95 dark:bg-dark-bg/95 backdrop-blur-xl flex justify-around items-center py-2 px-3 z-30 shadow-2xl">
-      {navItems.map((item) => (
-        <Link
-          key={item.href}
-          href={item.href}
-          className={`flex flex-col items-center gap-1 transition-all relative ${
-            isActive(item.href)
-              ? 'text-primary-500'
-              : 'text-gray-500 hover:text-white'
-          }`}
-        >
-          {item.icon}
-          {item.badge && (
-            <span className="absolute -top-1 right-2 w-5 h-5 bg-red-500 rounded-full text-[9px] font-bold flex items-center justify-center text-white">
-              3
+    <nav className="fixed bottom-0 left-0 right-0 border-t border-gray-200 dark:border-dark-border bg-white/95 dark:bg-dark-bg/95 backdrop-blur-xl flex justify-around items-center py-2 px-3 z-50 shadow-2xl">
+      {navItems.map((item) => {
+        const isPublish = (item as { isPublish?: boolean }).isPublish
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`flex flex-col items-center transition-all relative ${
+              isPublish
+                ? `gap-1 ${isActive(item.href) ? 'text-primary-500' : 'text-gray-500'}`
+                : `gap-1 ${isActive(item.href) ? 'text-primary-500' : 'text-gray-500 hover:text-white'}`
+            }`}
+          >
+            {isPublish ? (
+              <div className="w-8 h-8 -mt-1.5 rounded-full bg-gradient-to-tr from-primary-500 via-primary-600 to-purple-600 text-white shadow-lg shadow-primary-500/30 hover:opacity-90 flex items-center justify-center">
+                {item.icon}
+              </div>
+            ) : (
+              item.icon
+            )}
+            {item.badge && (
+              <span className="absolute -top-1 right-2 w-5 h-5 bg-red-500 rounded-full text-[9px] font-bold flex items-center justify-center text-white">
+                3
+              </span>
+            )}
+            <span className={`text-[10px] ${isActive(item.href) ? 'font-bold' : ''}`}>
+              {item.label}
             </span>
-          )}
-          <span className={`text-[10px] ${isActive(item.href) ? 'font-bold' : ''}`}>
-            {item.label}
-          </span>
-        </Link>
-      ))}
+          </Link>
+        )
+      })}
     </nav>
   )
 }

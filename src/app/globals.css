@@ -3,6 +3,9 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    scrollbar-gutter: stable; /* Evita salto de layout al abrir modales (ej. VideoFeed) que cambian overflow */
+  }
   body {
     @apply bg-gray-50 text-gray-900 dark:bg-dark-bg dark:text-white min-h-screen;
   }
