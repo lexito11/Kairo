@@ -243,7 +243,7 @@ export default function FeedPage() {
               <span>🙏</span>
             </div>
             <span className="font-bold text-lg bg-gradient-to-r from-primary-500 to-pink-500 bg-clip-text text-transparent">
-              TestimonioApp
+              KAIRO
             </span>
           </div>
           <div className="flex items-center gap-2">

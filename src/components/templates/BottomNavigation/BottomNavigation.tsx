@@ -30,9 +30,11 @@ export function BottomNavigation() {
       href: '/feed/create',
       label: 'Publicar',
       icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-        </svg>
+        <span className="w-10 h-10 rounded-full bg-gradient-to-tr from-primary-500 to-purple-600 flex items-center justify-center shadow-lg shadow-primary-500/30">
+          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+        </span>
       ),
       isPublish: true,
     },
@@ -78,27 +80,20 @@ export function BottomNavigation() {
   return (
     <nav className="fixed bottom-0 left-0 right-0 border-t border-gray-200 dark:border-dark-border bg-white/95 dark:bg-dark-bg/95 backdrop-blur-xl flex justify-around items-center py-2 px-3 z-50 shadow-2xl">
       {navItems.map((item) => {
-        const isPublish = (item as { isPublish?: boolean }).isPublish
         return (
           <Link
             key={item.href}
             href={item.href}
-            className={`flex flex-col items-center transition-all relative ${
-              isPublish
-                ? `gap-1 ${isActive(item.href) ? 'text-primary-500' : 'text-gray-500'}`
-                : `gap-1 ${isActive(item.href) ? 'text-primary-500' : 'text-gray-500 hover:text-white'}`
+            className={`flex flex-col items-center transition-all relative gap-1 ${
+              item.isPublish
+                ? (isActive(item.href) ? 'text-primary-500' : 'text-gray-500 dark:text-gray-400')
+                : isActive(item.href) ? 'text-primary-500' : 'text-gray-500 hover:text-white'
             }`}
           >
-            {isPublish ? (
-              <div className="w-8 h-8 -mt-1.5 rounded-full bg-gradient-to-tr from-primary-500 via-primary-600 to-purple-600 text-white shadow-lg shadow-primary-500/30 hover:opacity-90 flex items-center justify-center">
-                {item.icon}
-              </div>
-            ) : (
-              item.icon
-            )}
+            {item.icon}
             {item.badge && (
-              <span className="absolute -top-1 right-2 w-5 h-5 bg-red-500 rounded-full text-[9px] font-bold flex items-center justify-center text-white">
-                3
+              <span className="absolute -top-1 right-2 w-5 h-5 bg-red-500 rounded-full text-[9px] font-bold flex items-center justify-center text-white leading-none">
+                <span className="inline-block pt-px">3</span>
               </span>
             )}
             <span className={`text-[10px] ${isActive(item.href) ? 'font-bold' : ''}`}>

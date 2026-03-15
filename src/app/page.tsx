@@ -53,7 +53,7 @@ export default function Home() {
               <span>🙏</span>
             </div>
             <span className="font-bold text-lg bg-gradient-to-r from-primary-500 to-purple-500 bg-clip-text text-transparent">
-              TestimonioApp
+              KAIRO
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -76,7 +76,7 @@ export default function Home() {
           <div className="flex gap-3 justify-center">
             <Link href="/feed">
               <Button size="lg" className="bg-gradient-to-r from-primary-500 to-purple-600 hover:from-primary-600 hover:to-purple-700">
-                Explorar Testimonios
+                Explorar KAIRO
               </Button>
             </Link>
           </div>
@@ -126,7 +126,7 @@ export default function Home() {
               <div className="mt-6 p-4 bg-dark-card rounded-xl border border-dark-border text-center">
                 <Link href="/feed">
                   <Button className="w-full bg-gradient-to-r from-primary-500 to-purple-600 hover:from-primary-600 hover:to-purple-700">
-                    Ver Más Testimonios
+                    Interactuar más
                   </Button>
                 </Link>
               </div>
@@ -152,7 +152,7 @@ export default function Home() {
             </p>
             <Link href="/feed">
               <Button size="lg" className="bg-gradient-to-r from-primary-500 to-purple-600 hover:from-primary-600 hover:to-purple-700">
-                Ver Todos los Testimonios
+                Entrar a KAIRO
               </Button>
             </Link>
           </div>

@@ -18,6 +18,17 @@ const denominationNames: Record<string, string> = {
   otra: 'Otra',
 }
 
+const EVENT_CATEGORIES = [
+  'Educación y Capacitación',
+  'Conferencias y Charlas',
+  'Deportes y Actividad Física',
+  'Arte y Cultura',
+  'Social y Familiar',
+  'Salud y Bienestar',
+  'Servicio y Acción Social',
+  'Gestión y Planeación',
+]
+
 type FilterType = 'todos' | 'hoy' | 'enVivo' | 'proximos'
 
 interface EventData {
@@ -42,6 +53,7 @@ export default function EventsPage() {
   const [showInitialSelector, setShowInitialSelector] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [activeFilter, setActiveFilter] = useState<FilterType>('todos')
+  const [eventScope, setEventScope] = useState<'cristianos' | 'particulares' | 'iglesia'>('cristianos')
   const [selectedEvent, setSelectedEvent] = useState<EventData | null>(null)
   const [showChurchRegistration, setShowChurchRegistration] = useState(false)
   const [showFilterPanel, setShowFilterPanel] = useState(false)
@@ -51,6 +63,14 @@ export default function EventsPage() {
     denomination: '',
     city: '',
     password: ''
+  })
+  const [showCreateParticularEvent, setShowCreateParticularEvent] = useState(false)
+  const [particularEventForm, setParticularEventForm] = useState({
+    title: '',
+    category: '',
+    location: '',
+    date: '',
+    description: ''
   })
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -452,7 +472,44 @@ export default function EventsPage() {
         <header className="bg-white dark:bg-dark-bg border-b border-gray-200 dark:border-dark-border sticky top-0 z-10 px-4 py-4">
           <div className="flex flex-col gap-4">
             
-            {/* Denomination Selector */}
+            {/* Cristianos | Particulares | Iglesia (si pertenece) */}
+            <div className="flex items-center gap-6 border-b border-gray-200 dark:border-dark-border pb-2">
+              <button
+                onClick={() => setEventScope('cristianos')}
+                className={`text-base font-bold transition-colors pb-2 border-b-2 -mb-0.5 ${
+                  eventScope === 'cristianos'
+                    ? 'text-gray-900 dark:text-white border-gray-900 dark:border-white'
+                    : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                Cristianos
+              </button>
+              <button
+                onClick={() => setEventScope('particulares')}
+                className={`text-base font-bold transition-colors pb-2 border-b-2 -mb-0.5 ${
+                  eventScope === 'particulares'
+                    ? 'text-gray-900 dark:text-white border-gray-900 dark:border-white'
+                    : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                Particulares
+              </button>
+              {selectedDenomination && eventScope !== 'particulares' && (
+                <button
+                  onClick={() => setEventScope('iglesia')}
+                  className={`text-base font-bold transition-colors pb-2 border-b-2 -mb-0.5 ${
+                    eventScope === 'iglesia'
+                      ? 'text-gray-900 dark:text-white border-gray-900 dark:border-white'
+                      : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  {displayDenomination}
+                </button>
+              )}
+            </div>
+
+            {/* Denomination Selector (no mostrar en Particulares) */}
+            {eventScope !== 'particulares' && (
             <div className="flex items-center gap-3">
               <div className="relative group" ref={dropdownRef}>
                 <button 
@@ -514,6 +571,7 @@ export default function EventsPage() {
               </div>
               <span className="text-gray-400 text-sm hidden sm:inline">Mostrando eventos de tu fe</span>
             </div>
+            )}
 
             {/* Actions */}
             <div className="flex items-center gap-3">
@@ -557,13 +615,15 @@ export default function EventsPage() {
 
               <button 
                 onClick={() => {
-                  // Verificar si es la primera vez (puedes usar localStorage para verificar)
-                  const hasRegisteredChurch = localStorage.getItem('hasRegisteredChurch')
-                  if (!hasRegisteredChurch) {
-                    setShowChurchRegistration(true)
+                  if (eventScope === 'particulares') {
+                    setShowCreateParticularEvent(true)
                   } else {
-                    // Aquí iría la lógica para crear evento
-                    console.log('Crear evento')
+                    const hasRegisteredChurch = localStorage.getItem('hasRegisteredChurch')
+                    if (!hasRegisteredChurch) {
+                      setShowChurchRegistration(true)
+                    } else {
+                      console.log('Crear evento (cristianos/iglesia)')
+                    }
                   }
                 }}
                 className="bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2"
@@ -958,25 +1018,25 @@ export default function EventsPage() {
 
             {/* Contenido scrolleable */}
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
-              {/* Denominaciones */}
+              {/* Categorías (Populares) */}
               <section>
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-bold text-white">Denominaciones</h3>
+                  <h3 className="font-bold text-white">Categorías</h3>
                   <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                   </svg>
                 </div>
-                <p className="text-sm text-gray-400 mb-3">1 seleccionadas</p>
+                <p className="text-sm text-gray-400 mb-3">Selecciona una o más</p>
                 <div className="space-y-2">
                   {[
-                    { name: 'Bautista', color: 'bg-cyan-500', selected: true },
-                    { name: 'Pentecostal / Carismático', color: 'bg-red-500', selected: false },
-                    { name: 'Presbiteriano / Reformado', color: 'bg-green-500', selected: false },
-                    { name: 'Adventista del Séptimo Día', color: 'bg-orange-500', selected: false },
-                    { name: 'Metodista / Wesleyano', color: 'bg-purple-500', selected: false },
-                    { name: 'Iglesia de Cristo', color: 'bg-pink-500', selected: false },
-                    { name: 'Evangélico Independiente', color: 'bg-cyan-400', selected: false },
-                    { name: 'No-denominacional', color: 'bg-purple-800', selected: false },
+                    { name: 'Educación y Capacitación', color: 'bg-cyan-500', selected: false },
+                    { name: 'Conferencias y Charlas', color: 'bg-red-500', selected: false },
+                    { name: 'Deportes y Actividad Física', color: 'bg-green-500', selected: false },
+                    { name: 'Arte y Cultura', color: 'bg-amber-500', selected: false },
+                    { name: 'Social y Familiar', color: 'bg-purple-500', selected: false },
+                    { name: 'Salud y Bienestar', color: 'bg-emerald-500', selected: false },
+                    { name: 'Servicio y Acción Social', color: 'bg-pink-500', selected: false },
+                    { name: 'Gestión y Planeación', color: 'bg-indigo-500', selected: false },
                   ].map((item) => (
                     <button
                       key={item.name}
@@ -1299,6 +1359,130 @@ export default function EventsPage() {
                     className="flex-1 py-3 px-4 bg-primary-500 hover:bg-primary-600 text-white font-medium rounded-lg transition-colors"
                   >
                     Registrar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Crear evento (Particulares) - con categoría */}
+      {showCreateParticularEvent && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowCreateParticularEvent(false)}
+        >
+          <div
+            className="bg-white dark:bg-dark-card rounded-2xl max-w-md w-full border border-gray-200 dark:border-dark-border shadow-2xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Crear evento</h2>
+                <button
+                  onClick={() => setShowCreateParticularEvent(false)}
+                  className="w-8 h-8 bg-gray-100 dark:bg-dark-hover rounded-full flex items-center justify-center text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  console.log('Evento particular:', particularEventForm)
+                  setShowCreateParticularEvent(false)
+                  setParticularEventForm({ title: '', category: '', location: '', date: '', description: '' })
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Título del evento
+                  </label>
+                  <input
+                    type="text"
+                    value={particularEventForm.title}
+                    onChange={(e) => setParticularEventForm({ ...particularEventForm, title: e.target.value })}
+                    className="w-full px-4 py-2 bg-gray-100 dark:bg-dark-hover border border-gray-200 dark:border-dark-border rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors"
+                    placeholder="Ej. Taller de oración"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Categoría
+                  </label>
+                  <select
+                    value={particularEventForm.category}
+                    onChange={(e) => setParticularEventForm({ ...particularEventForm, category: e.target.value })}
+                    className="w-full px-4 py-2 bg-gray-100 dark:bg-dark-hover border border-gray-200 dark:border-dark-border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:border-primary-500 transition-colors"
+                    required
+                  >
+                    <option value="">Selecciona una categoría</option>
+                    {EVENT_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat} className="bg-white dark:bg-dark-card">
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Lugar o dirección
+                  </label>
+                  <input
+                    type="text"
+                    value={particularEventForm.location}
+                    onChange={(e) => setParticularEventForm({ ...particularEventForm, location: e.target.value })}
+                    className="w-full px-4 py-2 bg-gray-100 dark:bg-dark-hover border border-gray-200 dark:border-dark-border rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors"
+                    placeholder="Ej. Parque central, sala comunal"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Fecha
+                  </label>
+                  <input
+                    type="date"
+                    value={particularEventForm.date}
+                    onChange={(e) => setParticularEventForm({ ...particularEventForm, date: e.target.value })}
+                    className="w-full px-4 py-2 bg-gray-100 dark:bg-dark-hover border border-gray-200 dark:border-dark-border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:border-primary-500 transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Descripción (opcional)
+                  </label>
+                  <textarea
+                    value={particularEventForm.description}
+                    onChange={(e) => setParticularEventForm({ ...particularEventForm, description: e.target.value })}
+                    className="w-full px-4 py-2 bg-gray-100 dark:bg-dark-hover border border-gray-200 dark:border-dark-border rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors resize-none"
+                    placeholder="Breve descripción del evento"
+                    rows={3}
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateParticularEvent(false)}
+                    className="flex-1 py-3 px-4 bg-gray-100 dark:bg-dark-hover hover:bg-gray-200 dark:hover:bg-dark-border text-gray-900 dark:text-gray-300 font-medium rounded-lg transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-3 px-4 bg-primary-500 hover:bg-primary-600 text-white font-medium rounded-lg transition-colors"
+                  >
+                    Crear evento
                   </button>
                 </div>
               </form>

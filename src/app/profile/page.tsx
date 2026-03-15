@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { Avatar } from '@/components/atoms/Avatar'
 import { BottomNavigation } from '@/components/templates/BottomNavigation'
@@ -33,9 +33,18 @@ export default function ProfilePage() {
   const displayName = 'Alex Perea'
   const displayUsername = '@alex_perea11'
   const userId = session?.user?.id || 'user-1' // ID temporal del usuario
-  
-  // En la página de perfil, siempre es el perfil del usuario actual (es su propio perfil)
-  const isProfileOwner = true
+  const searchParams = useSearchParams()
+  // Si en la URL viene otro userId (ej. /profile?userId=xxx), es el perfil de otro usuario.
+  // Anónimos solo se muestra cuando es tu propio perfil (isProfileOwner).
+  const viewedUserId = searchParams.get('userId') || userId
+  const isProfileOwner = viewedUserId === userId
+
+  // Si estás viendo el perfil de otro, no mostrar pestaña Anónimos; asegurar tab válido
+  useEffect(() => {
+    if (!isProfileOwner && selectedTab === 'anonimos') {
+      setSelectedTab('publicaciones')
+    }
+  }, [isProfileOwner, selectedTab])
 
   // Crear 5 publicaciones mock del usuario actual
   const mockUserPosts: Post[] = useMemo(() => [
@@ -459,17 +468,12 @@ export default function ProfilePage() {
           </div>
         </header>
 
-        {/* Profile Content - Vertical Centered */}
+        {/* Profile Content - Horizontal: avatar izquierda, nombre y stats derecha */}
         <div className="px-4 py-6">
-          {/* Username */}
-          <div className="flex justify-center mb-4">
-            <p className="text-gray-500 dark:text-white text-base font-light">{displayUsername}</p>
-          </div>
-
-          {/* Profile Picture - Centered */}
-          <div className="flex justify-center mb-4">
-            <div className="relative">
-              <div className="w-32 h-32 rounded-full border-4 border-primary-500 overflow-hidden bg-gray-100 dark:bg-dark-hover flex items-center justify-center">
+          <div className="flex flex-row items-start gap-4">
+            {/* Izquierda: foto de perfil */}
+            <div className="relative flex-shrink-0">
+              <div className="w-20 h-20 rounded-full border-4 border-primary-500 overflow-hidden bg-gray-100 dark:bg-dark-hover flex items-center justify-center">
                 {userImage ? (
                   <Avatar
                     src={userImage}
@@ -478,67 +482,58 @@ export default function ProfilePage() {
                     className="border-0 w-full h-full"
                   />
                 ) : (
-                  <div className="w-full h-full bg-primary-500 flex items-center justify-center text-white text-4xl font-bold">
+                  <div className="w-full h-full bg-primary-500 flex items-center justify-center text-white text-3xl font-bold">
                     {displayName.charAt(0).toUpperCase()}
                   </div>
                 )}
               </div>
-              {/* Plus Icon Button */}
-              <button className="absolute bottom-0 right-0 w-8 h-8 bg-primary-500 rounded-full flex items-center justify-center text-white shadow-lg border-2 border-white dark:border-dark-bg hover:bg-primary-600 transition-colors">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v16m8-8H4"
-                  />
+              <button className="absolute bottom-0 right-0 w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center text-white shadow-lg border-2 border-white dark:border-dark-bg hover:bg-primary-600 transition-colors">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
               </button>
             </div>
-          </div>
 
-          {/* Name and Edit Button */}
-          <div className="flex items-center justify-center gap-2 mb-6 relative px-12">
-            <div className="flex items-center gap-2">
-              <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">{displayName}</h1>
-            </div>
-            <button className="absolute right-0 bg-gray-100 dark:bg-dark-hover hover:bg-gray-200 dark:hover:bg-dark-border rounded-full p-2 transition-colors">
-              <svg className="w-4 h-4 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                />
-              </svg>
-            </button>
-          </div>
-
-          {/* Statistics */}
-          <div className="flex justify-center gap-8 mb-6">
-            <div className="text-center">
-              <p className="text-gray-900 dark:text-white font-black text-xl leading-none">{stats.siguiendo}</p>
-              <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-1">Siguiendo</p>
-            </div>
-            <div className="text-center">
-              <p className="text-gray-900 dark:text-white font-black text-xl leading-none">{formatNumber(stats.seguidores)}</p>
-              <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-1">Seguidores</p>
-            </div>
-            <div className="text-center">
-              <p className="text-gray-900 dark:text-white font-black text-xl leading-none">{formatNumber(stats.meGusta)}</p>
-              <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-1">Me gusta</p>
+            {/* Derecha: nombre (con editar en esquina), usuario, estadísticas */}
+            <div className="flex flex-col min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <h1 className="text-xl font-black text-gray-900 dark:text-white tracking-tight leading-tight">{displayName}</h1>
+                <button
+                  className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md border border-gray-300 dark:border-gray-500 bg-transparent hover:bg-gray-100 dark:hover:bg-dark-hover text-gray-600 dark:text-gray-300 transition-colors"
+                  aria-label="Editar perfil"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-gray-500 dark:text-gray-400 text-sm font-normal mt-0.5">{displayUsername}</p>
+              <div className="flex gap-4 mt-3">
+                <div>
+                  <p className="text-gray-900 dark:text-white font-bold text-base leading-none">{stats.siguiendo}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-0.5">Siguiendo</p>
+                </div>
+                <div>
+                  <p className="text-gray-900 dark:text-white font-bold text-base leading-none">{formatNumber(stats.seguidores)}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-0.5">Seguidores</p>
+                </div>
+                <div>
+                  <p className="text-gray-900 dark:text-white font-bold text-base leading-none">{formatNumber(stats.meGusta)}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-0.5">Me gusta</p>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Links */}
-          <div className="space-y-1 mb-6">
+          <div className="space-y-1 mb-6 mt-4">
             {links.map((link, index) => (
               <a
                 key={index}
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 text-center text-gray-700 dark:text-white hover:text-gray-900 dark:hover:text-gray-200 text-sm break-all px-4 font-normal transition-colors"
+                className="flex items-center gap-2 text-gray-700 dark:text-white hover:text-gray-900 dark:hover:text-gray-200 text-sm break-all font-normal transition-colors"
               >
                 {index === 0 ? (
                   <>
@@ -596,11 +591,21 @@ export default function ProfilePage() {
                 Anónimos
               </button>
             )}
+            <button
+              onClick={() => setSelectedTab('listas')}
+              className={`text-base font-bold transition-colors pb-2 ${
+                selectedTab === 'listas'
+                  ? 'text-primary-600 dark:text-primary-400 border-b-2 border-primary-600 dark:border-primary-400'
+                  : 'text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              Listas
+            </button>
           </div>
 
           {/* Anónimos Grid */}
           {selectedTab === 'anonimos' && isProfileOwner && (
-            <div className="grid grid-cols-3 gap-x-0.5 gap-y-2">
+            <div className="grid grid-cols-3 gap-px">
               {anonymousPosts.length > 0 ? (
                 anonymousPosts
                   .filter((post) => {
@@ -659,7 +664,7 @@ export default function ProfilePage() {
                     <div
                       key={post.id}
                       onClick={() => handleImageClick(post.id)}
-                      className="bg-white dark:bg-dark-card overflow-hidden cursor-pointer shadow-md hover:shadow-lg transition-shadow rounded-lg relative"
+                      className="bg-white dark:bg-dark-card overflow-hidden cursor-pointer shadow-md hover:shadow-lg transition-shadow relative"
                     >
                       {/* Media */}
                       <div className="aspect-square bg-gray-100 dark:bg-dark-hover relative">
@@ -688,8 +693,8 @@ export default function ProfilePage() {
                         
                         {/* Indicador de cantidad si hay múltiples medios */}
                         {hasMultipleMedia && (
-                          <div className="absolute top-2 right-2 bg-black/70 rounded-full px-2 py-0.5">
-                            <span className="text-white text-[10px] font-semibold">
+                          <div className="absolute top-2 right-2 bg-black/70 rounded px-1 py-0.5 min-w-[18px] min-h-[18px] flex items-center justify-center leading-none">
+                            <span className="text-white text-[9px] font-semibold leading-none inline-block pt-px">
                               {allMedia.length}
                             </span>
                           </div>
@@ -724,9 +729,56 @@ export default function ProfilePage() {
             </div>
           )}
 
+          {/* Listas */}
+          {selectedTab === 'listas' && (
+            <div className="divide-y divide-gray-200 dark:divide-dark-border">
+              {userPosts.slice(0, 10).map((post) => {
+                const likesCount = post._count?.likes ?? 0
+                const commentsCount = post._count?.comments ?? 0
+                const dateStr = new Date(post.createdAt).toLocaleDateString('es', { day: 'numeric', month: 'short' })
+                return (
+                  <div
+                    key={post.id}
+                    className="border-0 rounded-none px-4 py-2.5 bg-transparent"
+                  >
+                    {/* Fila: título a la izquierda, fecha a la derecha */}
+                    <div className="flex justify-between items-start gap-3">
+                      <p className="text-sm text-gray-900 dark:text-white leading-snug flex-1 min-w-0 whitespace-pre-wrap break-words">
+                        {post.content}
+                      </p>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums flex-shrink-0">
+                        {dateStr}
+                      </span>
+                    </div>
+                    {/* Fila: likes (rojo), comentarios (blanco) */}
+                    <div className="mt-1.5 flex items-center gap-4">
+                      <span className="flex items-center gap-1 text-xs font-medium text-red-500 dark:text-red-400">
+                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
+                        </svg>
+                        {likesCount >= 1000 ? `${(likesCount / 1000).toFixed(1)}K` : likesCount.toLocaleString()}
+                      </span>
+                      <span className="flex items-center gap-1 text-xs font-medium text-gray-700 dark:text-white">
+                        <svg className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.444 3 12c0 2.104.859 4.023 2.273 5.488.348.332.697.638 1.05.94l-1.35 3.75 3.75-1.35c.302.353.608.702.94 1.05C7.977 19.141 9.896 20 12 20.25z" />
+                        </svg>
+                        {commentsCount >= 1000 ? `${(commentsCount / 1000).toFixed(1)}K` : commentsCount.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+              {userPosts.length === 0 && (
+                <div className="py-8 text-center text-gray-500 dark:text-gray-400 text-sm">
+                  Tus listas aparecerán aquí
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Publicaciones Grid */}
           {selectedTab === 'publicaciones' && (
-            <div className="grid grid-cols-3 gap-x-0.5 gap-y-2">
+            <div className="grid grid-cols-3 gap-px">
               {userPosts.length > 0 ? (
                 userPosts
                   .filter((post) => {
@@ -785,7 +837,7 @@ export default function ProfilePage() {
                     <div
                       key={post.id}
                       onClick={() => handleImageClick(post.id)}
-                      className="bg-white dark:bg-dark-card overflow-hidden cursor-pointer shadow-md hover:shadow-lg transition-shadow rounded-lg relative"
+                      className="bg-white dark:bg-dark-card overflow-hidden cursor-pointer shadow-md hover:shadow-lg transition-shadow relative"
                     >
                       {/* Media */}
                       <div className="aspect-square bg-gray-100 dark:bg-dark-hover relative">
@@ -814,8 +866,8 @@ export default function ProfilePage() {
                         
                         {/* Indicador de cantidad si hay múltiples medios */}
                         {hasMultipleMedia && (
-                          <div className="absolute top-2 right-2 bg-black/70 rounded-full px-2 py-0.5">
-                            <span className="text-white text-[10px] font-semibold">
+                          <div className="absolute top-2 right-2 bg-black/70 rounded px-1 py-0.5 min-w-[18px] min-h-[18px] flex items-center justify-center leading-none">
+                            <span className="text-white text-[9px] font-semibold leading-none inline-block pt-px">
                               {allMedia.length}
                             </span>
                           </div>

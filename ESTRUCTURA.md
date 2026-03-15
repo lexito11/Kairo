@@ -1,4 +1,4 @@
-# 📁 Estructura de Carpetas - Red Social Cristiana
+# 📁 Estructura de Carpetas - KAIRO
 
 Esta aplicación sigue el patrón **Atomic Design** organizado por tamaño y complejidad de componentes.
 

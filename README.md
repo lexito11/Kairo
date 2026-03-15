@@ -1,4 +1,4 @@
-# Red Social Cristiana
+# KAIRO
 
 Una red social diseñada para conectar a la comunidad cristiana.
 

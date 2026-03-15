@@ -83,7 +83,7 @@ export default function SignUpPage() {
               <span>🙏</span>
             </div>
             <span className="font-bold text-2xl bg-gradient-to-r from-primary-500 to-purple-500 bg-clip-text text-transparent">
-              TestimonioApp
+              KAIRO
             </span>
           </Link>
           <h1 className="text-2xl font-bold text-white mb-2">Crear Cuenta</h1>

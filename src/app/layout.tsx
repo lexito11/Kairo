@@ -6,7 +6,7 @@ import { Providers } from '@/components/templates/Providers'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Red Social Cristiana',
+  title: 'KAIRO',
   description: 'Conecta con la comunidad cristiana',
 }
 
