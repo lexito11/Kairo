@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { uploadFile } from '@/lib/storage'
-import { getPostsWithPagination, postSelect } from './utils'
+import { getPostsWithPagination, getPersonalizedFeed, postSelect } from './utils'
 import { PostsResponse } from './types'
 
 export async function GET(request: NextRequest) {
@@ -22,7 +22,17 @@ export async function GET(request: NextRequest) {
       currentUserId = null
     }
 
-    const result = await getPostsWithPagination(page, limit, currentUserId)
+    let result: PostsResponse
+    if (currentUserId) {
+      try {
+        result = await getPersonalizedFeed(page, limit, currentUserId)
+      } catch (feedError) {
+        console.warn('Feed personalizado no disponible, usando feed cronológico:', feedError)
+        result = await getPostsWithPagination(page, limit, currentUserId)
+      }
+    } else {
+      result = await getPostsWithPagination(page, limit, null)
+    }
 
     return NextResponse.json<PostsResponse>(result)
   } catch (error) {

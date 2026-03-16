@@ -15,11 +15,13 @@ interface ImageCarouselProps {
   commentsCount?: number
   sharesCount?: number
   isLiked?: boolean
+  forcePlayVideo?: boolean
+  postId?: string
   onVideoClick?: () => void
   onImageClick?: () => void
 }
 
-export function ImageCarousel({ items, alt = 'Post media', likesCount = 0, commentsCount = 0, sharesCount = 0, isLiked = false, onVideoClick, onImageClick }: ImageCarouselProps) {
+export function ImageCarousel({ items, alt = 'Post media', likesCount = 0, commentsCount = 0, sharesCount = 0, isLiked = false, forcePlayVideo = false, postId, onVideoClick, onImageClick }: ImageCarouselProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [currentIndex, setCurrentIndex] = useState(0)
 
@@ -76,6 +78,8 @@ export function ImageCarousel({ items, alt = 'Post media', likesCount = 0, comme
                     src={item.url}
                     fit="contain"
                     className=""
+                    forcePlayVideo={forcePlayVideo && index === currentIndex}
+                    postId={postId}
                   />
                 </div>
               ) : (

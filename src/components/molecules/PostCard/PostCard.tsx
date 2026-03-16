@@ -30,6 +30,7 @@ function PostCardComponent({
   onVideoClick,
   onImageClick,
   onIntercede,
+  forcePlayVideo = false,
 }: PostCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [localIsLiked, setLocalIsLiked] = useState(isLiked)
@@ -164,6 +165,8 @@ function PostCardComponent({
               commentsCount={commentsCount}
               sharesCount={sharesCount}
               isLiked={localIsLiked}
+              forcePlayVideo={forcePlayVideo}
+              postId={id}
               onVideoClick={() => {
                 // Encontrar el primer video en el carrusel
                 const firstVideo = mediaItems.find(item => item.type === 'video')
@@ -188,6 +191,8 @@ function PostCardComponent({
                 src={mediaItems[0].url}
                 fit="contain"
                 className=""
+                forcePlayVideo={forcePlayVideo}
+                postId={id}
               />
             </div>
           ) : (

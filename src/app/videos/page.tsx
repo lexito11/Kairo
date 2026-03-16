@@ -70,8 +70,9 @@ export default function VideosPage() {
 
   const handleSave = useCallback((postId: string) => {
     const saved = JSON.parse(localStorage.getItem('saved-posts') || '[]') as string[]
-    if (saved.includes(postId)) return
-    localStorage.setItem('saved-posts', JSON.stringify([...saved, postId]))
+    const isAlreadySaved = saved.includes(postId)
+    const next = isAlreadySaved ? saved.filter(id => id !== postId) : [...saved, postId]
+    localStorage.setItem('saved-posts', JSON.stringify(next))
   }, [])
 
   const handleCommentAdded = useCallback(async () => {

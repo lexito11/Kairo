@@ -14,16 +14,15 @@ import { EventsTodaySection } from '@/components/organisms/EventsTodaySection'
 import { EventsUpcomingSection } from '@/components/organisms/EventsUpcomingSection'
 import { useSession } from 'next-auth/react'
 import { useCallback, useState, useMemo, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Post } from '@/types'
 
 export default function FeedPage() {
   const { data: session } = useSession()
-  const router = useRouter()
   const { posts, loading, error, hasMore, loadMore, likePost, refreshPost } = usePosts()
   const [selectedVideoIndex, setSelectedVideoIndex] = useState<number | null>(null)
   const [selectedMediaIndex, setSelectedMediaIndex] = useState<number | null>(null)
+  const [videoToResumeOnClose, setVideoToResumeOnClose] = useState<string | null>(null)
   const [selectedPostForComments, setSelectedPostForComments] = useState<string | null>(null)
   const [selectedPostForShare, setSelectedPostForShare] = useState<string | null>(null)
 
@@ -61,8 +60,9 @@ export default function FeedPage() {
 
   const handleSave = useCallback((postId: string) => {
     const saved = JSON.parse(localStorage.getItem('saved-posts') || '[]') as string[]
-    if (saved.includes(postId)) return
-    localStorage.setItem('saved-posts', JSON.stringify([...saved, postId]))
+    const isAlreadySaved = saved.includes(postId)
+    const next = isAlreadySaved ? saved.filter(id => id !== postId) : [...saved, postId]
+    localStorage.setItem('saved-posts', JSON.stringify(next))
   }, [])
 
   const handleCommentAdded = useCallback(async () => {
@@ -106,88 +106,25 @@ export default function FeedPage() {
       .map(item => item.post)
   }, [posts])
 
-  // Ordenar el feed principal con enfoque tipo Instagram,
-  // priorizando videos y testimonios, pero permitiendo que
-  // algunas imágenes muy virales se mezclen entre ellos.
-  const orderedPosts = useMemo(() => {
-    if (!posts || posts.length === 0) return []
-
-    const isVideoPost = (post: Post): boolean => {
-      if (post.mediaType === 'video' && post.mediaUrl) {
-        return true
-      }
-      if (post.mediaUrls && post.mediaUrls.length > 0) {
-        return post.mediaUrls.some((url) => {
-          const lowerUrl = url.toLowerCase()
-          return (
-            lowerUrl.includes('.mp4') ||
-            lowerUrl.includes('.webm') ||
-            lowerUrl.includes('video') ||
-            lowerUrl.includes('gtv-videos-bucket')
-          )
-        })
-      }
-      return false
-    }
-
-    const isTestimonyPost = (post: Post): boolean =>
-      (post as any).postType === 'testimony'
-
-    // Score similar al de usePosts: popularidad + tiempo
-    const getBasePopularityScore = (post: Post): number => {
-      const likes = post._count?.likes || 0
-      const comments = post._count?.comments || 0
-      const now = Date.now()
-      const createdAt = new Date(post.createdAt).getTime()
-      const hoursSinceCreation = (now - createdAt) / (1000 * 60 * 60)
-
-      const engagementScore = likes * 2 + comments * 3
-      const timeFactor = Math.max(0.1, 1 / (1 + hoursSinceCreation / 24))
-
-      return engagementScore * (1 + timeFactor)
-    }
-
-    // Clonar para no mutar el array original
-    const cloned = [...posts]
-
-    cloned.sort((a, b) => {
-      const aIsVideo = isVideoPost(a) ? 1 : 0
-      const bIsVideo = isVideoPost(b) ? 1 : 0
-
-      const aIsTestimony = isTestimonyPost(a) ? 1 : 0
-      const bIsTestimony = isTestimonyPost(b) ? 1 : 0
-
-      const baseScoreA = getBasePopularityScore(a)
-      const baseScoreB = getBasePopularityScore(b)
-
-      // Bonus fuerte para videos (enfoque de la app)
-      // y bonus adicional para testimonios
-      const bonusVideo = 1.4
-      const bonusTestimony = 1.15
-
-      const finalScoreA =
-        baseScoreA *
-        (aIsVideo ? bonusVideo : 1) *
-        (aIsTestimony ? bonusTestimony : 1)
-      const finalScoreB =
-        baseScoreB *
-        (bIsVideo ? bonusVideo : 1) *
-        (bIsTestimony ? bonusTestimony : 1)
-
-      return finalScoreB - finalScoreA
-    })
-
-    return cloned
-  }, [posts])
-
+  // El orden del feed lo define la API (feed personalizado por siguiendo + afinidad + explorar).
+  // No reordenamos en cliente para respetar el ranking del backend.
   const handleVideoClick = useCallback((postId: string) => {
-    // Navegar a la sección de videos con el postId como parámetro
-    router.push(`/videos?postId=${postId}`)
-  }, [router])
+    // Abrir el video en modal sobre el feed (estilo Instagram), sin salir del feed
+    const index = videoPosts.findIndex(p => p.id === postId)
+    if (index !== -1) setSelectedVideoIndex(index)
+  }, [videoPosts])
 
-  const handleCloseVideoFeed = useCallback(() => {
+  const handleCloseVideoFeed = useCallback((postId?: string) => {
     setSelectedVideoIndex(null)
+    if (postId) setVideoToResumeOnClose(postId)
   }, [])
+
+  // Limpiar videoToResumeOnClose después de que la tarjeta haya reanudado el video
+  useEffect(() => {
+    if (!videoToResumeOnClose) return
+    const t = setTimeout(() => setVideoToResumeOnClose(null), 800)
+    return () => clearTimeout(t)
+  }, [videoToResumeOnClose])
 
   // Obtener todos los posts con medios (imágenes y videos) ordenados por popularidad
   const mediaPosts = useMemo(() => {
@@ -306,7 +243,7 @@ export default function FeedPage() {
               <PostCardSkeleton />
             </>
           ) : (
-            orderedPosts.map((post, index) => (
+            posts.map((post, index) => (
               <div key={post.id}>
                 <PostCard
                   id={post.id}
@@ -323,6 +260,7 @@ export default function FeedPage() {
                   intercessionsCount={(post as any).intercessionsCount}
                   hasInterceded={(post as any).hasInterceded}
                   isAnswered={(post as any).isAnswered}
+                  forcePlayVideo={post.id === videoToResumeOnClose}
                   onLike={handleLike}
                   onComment={handleComment}
                   onShare={handleShare}

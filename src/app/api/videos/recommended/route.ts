@@ -1,86 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { getPersonalizedVideoFeed } from '@/app/api/posts/utils'
 
-// IMPORTANTE:
-// Para que puedas probar la sección "Solo Videos" sin tener aún
-// PostgreSQL/DATABASE_URL configurado, usamos los mockPosts del frontend.
-// Más adelante puedes cambiar esto a Prisma cuando tu BD esté lista.
-
+/**
+ * Videos recomendados con la misma lógica que el feed:
+ * siguiendo + afinidad (likes, comentarios, tiempo de reproducción) + explorar.
+ * Si no hay sesión, se usa mock para compatibilidad.
+ */
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
     const page = parseInt(searchParams.get('page') || '1')
-    const limit = Math.min(parseInt(searchParams.get('limit') || '15'), 50)
-    const offset = (page - 1) * limit
+    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50)
+
+    let currentUserId: string | null = null
+    try {
+      const session = await getServerSession(authOptions)
+      currentUserId = session?.user?.id || null
+    } catch {
+      currentUserId = null
+    }
+
+    if (currentUserId) {
+      const result = await getPersonalizedVideoFeed(page, limit, currentUserId)
+      return NextResponse.json({
+        page: result.pagination.page,
+        limit: result.pagination.limit,
+        total: result.pagination.total,
+        totalPages: result.pagination.totalPages,
+        videos: result.posts,
+      })
+    }
 
     const { mockPosts } = await import('@/hooks/usePosts/mockData')
-
     const now = Date.now()
+    const offset = (page - 1) * limit
 
-    // Filtrar solo posts que tengan al menos un video
     const videos = mockPosts
-      .map((post) => {
-        // Detectar URLs de media
+      .filter((post) => {
         const mediaUrls = post.mediaUrls || (post.mediaUrl ? [post.mediaUrl] : [])
-
-        const hasVideo = mediaUrls.some((url) => {
-          const lowerUrl = url.toLowerCase()
-          return (
-            lowerUrl.includes('.mp4') ||
-            lowerUrl.includes('.webm') ||
-            lowerUrl.includes('video') ||
-            lowerUrl.includes('gtv-videos-bucket')
-          )
+        return mediaUrls.some((url: string) => {
+          const lower = url.toLowerCase()
+          return lower.includes('.mp4') || lower.includes('.webm') || lower.includes('video') || lower.includes('gtv-videos-bucket')
         })
-
-        if (!hasVideo) return null
-
+      })
+      .map((post) => {
         const likes = post._count?.likes || 0
         const comments = post._count?.comments || 0
-
         const createdAt = new Date(post.createdAt).getTime()
-        const hoursSinceCreation = Math.max(
-          1,
-          (now - createdAt) / (1000 * 60 * 60)
-        )
-
-        // Como aún no tenemos métricas reales de watch time / shares,
-        // usamos un proxy sencillo:
-        const retention = 0.8 // asumimos buena retención para los mocks
-        const shares = Math.floor(likes * 0.1)
-        const saves = Math.floor(likes * 0.05)
-        const engagementLc = likes + comments
-
-        const rawPoints =
-          retention * 0.5 + shares * 0.3 + engagementLc * 0.2
-
-        const gravityScore =
-          rawPoints / Math.pow(hoursSinceCreation + 2.0, 0.8)
-
-        return {
-          ...post,
-          mediaUrls,
-          likesCount: likes,
-          commentsCount: comments,
-          retention,
-          rawPoints,
-          gravityScore,
-        }
+        const hours = Math.max(1, (now - createdAt) / (1000 * 60 * 60))
+        const score = (likes + comments * 2) / Math.pow(hours + 2, 0.8)
+        return { ...post, _score: score }
       })
-      .filter((p): p is any => p !== null)
-
-    videos.sort((a, b) => b.gravityScore - a.gravityScore)
-
-    const paginated = videos.slice(offset, offset + limit)
+      .sort((a: any, b: any) => b._score - a._score)
+      .slice(offset, offset + limit)
+      .map(({ _score, ...p }: any) => p)
 
     return NextResponse.json({
       page,
       limit,
-      total: videos.length,
-      totalPages: Math.ceil(videos.length / limit),
-      videos: paginated,
+      total: mockPosts.length,
+      totalPages: Math.ceil(mockPosts.length / limit),
+      videos,
     })
   } catch (error) {
-    console.error('Error fetching recommended videos (mock):', error)
+    console.error('Error fetching recommended videos:', error)
     return NextResponse.json(
       { error: 'Error al cargar videos recomendados' },
       { status: 500 }

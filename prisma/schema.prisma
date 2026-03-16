@@ -25,6 +25,7 @@ model User {
   posts         Post[]
   comments      Comment[]
   likes         Like[]
+  postViews     PostView[]
   followers     Follow[]  @relation("Follower")
   following     Follow[]  @relation("Following")
   messagesSent  Message[] @relation("Sender")
@@ -83,11 +84,26 @@ model Post {
   updatedAt DateTime @updatedAt
   authorId  String
 
-  author   User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  comments Comment[]
-  likes    Like[]
+  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments  Comment[]
+  likes     Like[]
+  postViews PostView[]
 
   @@map("posts")
+}
+
+model PostView {
+  id             String   @id @default(cuid())
+  userId         String
+  postId         String
+  watchedSeconds Int      // Tiempo de reproducción en segundos (engagement)
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([userId, postId])
+  @@map("post_views")
 }
 
 model Comment {

@@ -8,7 +8,7 @@ import { Avatar } from '@/components/atoms/Avatar'
 interface VideoFeedProps {
   posts: Post[]
   initialIndex: number
-  onClose: () => void
+  onClose: (postId?: string) => void
   onLike: (postId: string) => void
   onComment: (postId: string) => void
   onShare: (postId: string) => void
@@ -27,14 +27,66 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
   const router = useRouter()
   const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const [isPlaying, setIsPlaying] = useState(true)
-  const [isMuted, setIsMuted] = useState(false)
+  const [isMuted, setIsMuted] = useState(true)
   const [progress, setProgress] = useState(0) // 0..1 progreso del video activo
   const [duration, setDuration] = useState(0) // duración en segundos del video activo
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([])
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const fullscreenRef = useRef<HTMLDivElement>(null)
+  const prevIndexRef = useRef<number | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const [savedIds, setSavedIds] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    try {
+      const saved = JSON.parse(window.localStorage.getItem('saved-posts') || '[]') as string[]
+      return new Set(saved)
+    } catch {
+      return new Set()
+    }
+  })
+
+  const handleSavePost = useCallback((postId: string) => {
+    try {
+      const saved = JSON.parse(
+        typeof window !== 'undefined'
+          ? window.localStorage.getItem('saved-posts') || '[]'
+          : '[]'
+      ) as string[]
+
+      let next: string[]
+      const isAlreadySaved = saved.includes(postId)
+
+      if (isAlreadySaved) {
+        next = saved.filter((id) => id !== postId)
+        setSavedIds((prev) => {
+          const copy = new Set(prev)
+          copy.delete(postId)
+          return copy
+        })
+      } else {
+        next = [...saved, postId]
+        setSavedIds((prev) => new Set([...prev, postId]))
+      }
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('saved-posts', JSON.stringify(next))
+      }
+
+      onSave?.(postId)
+    } catch {
+      onSave?.(postId)
+    }
+  }, [onSave])
+
+  const reportWatchTime = useCallback((postId: string, watchedSeconds: number) => {
+    if (watchedSeconds < 1) return
+    fetch(`/api/posts/${postId}/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ watchedSeconds }),
+    }).catch(() => {})
+  }, [])
 
   // Filtrar solo posts con videos y extraer la URL del video
   const videoPosts: VideoPost[] = posts
@@ -106,25 +158,40 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
     }
   }, [currentIndex, videoPosts.length])
 
-  // Manejar reproducción/pausa del video actual
-  useEffect(() => {
+  // Forzar play del video actual (siempre muted primero para que el navegador no bloquee)
+  const tryPlayCurrent = useCallback(() => {
     const currentVideo = videoRefs.current[currentIndex]
     if (!currentVideo) return
-
-    // Reproducir automáticamente cuando cambia el video
-    setIsPlaying(true)
+    currentVideo.muted = true
     currentVideo.currentTime = 0
-    currentVideo.muted = isMuted
-    currentVideo.play().catch((error) => {
-      console.log('Error al reproducir:', error)
-      // Si falla con sonido, intentar con muted
-      currentVideo.muted = true
-      setIsMuted(true)
-      currentVideo.play().catch(() => {
-        console.log('Autoplay bloqueado')
-      })
-    })
-  }, [currentIndex, isMuted])
+    setIsPlaying(true)
+    const p = currentVideo.play()
+    if (p && typeof p.catch === 'function') p.catch(() => {})
+  }, [currentIndex])
+
+  useEffect(() => {
+    tryPlayCurrent()
+    const t1 = setTimeout(tryPlayCurrent, 80)
+    const t2 = setTimeout(tryPlayCurrent, 200)
+    const t3 = setTimeout(tryPlayCurrent, 500)
+    const t4 = setTimeout(tryPlayCurrent, 1000)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      clearTimeout(t3)
+      clearTimeout(t4)
+    }
+  }, [currentIndex, tryPlayCurrent])
+
+  // Al cambiar de video: registrar tiempo de reproducción del anterior
+  useEffect(() => {
+    const prev = prevIndexRef.current
+    if (prev !== null && prev !== currentIndex && videoPosts[prev] && videoRefs.current[prev]) {
+      const elapsed = Math.floor(videoRefs.current[prev]!.currentTime)
+      if (elapsed > 0) reportWatchTime(videoPosts[prev].post.id, elapsed)
+    }
+    prevIndexRef.current = currentIndex
+  }, [currentIndex, videoPosts, reportWatchTime])
 
   // Pausar todos los videos excepto el actual
   useEffect(() => {
@@ -213,9 +280,17 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
 
   return (
     <div ref={fullscreenRef} className="fixed inset-0 bg-black z-40">
-      {/* Botón de cerrar */}
+      {/* Botón de cerrar: registrar tiempo visto y pasar postId para reanudar en el feed */}
       <button
-        onClick={onClose}
+        onClick={() => {
+          const postId = videoPosts[currentIndex]?.post.id
+          const video = videoRefs.current[currentIndex]
+          if (postId && video) {
+            const sec = Math.floor(video.currentTime)
+            if (sec > 0) reportWatchTime(postId, sec)
+          }
+          onClose(postId)
+        }}
         className="absolute top-4 left-4 z-50 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition-all"
       >
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -226,7 +301,7 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
       {/* Contenedor de videos con scroll nativo */}
       <div 
         ref={scrollContainerRef}
-        className="w-full h-screen overflow-y-scroll scrollbar-hide pb-16"
+        className="w-full h-screen overflow-y-scroll scrollbar-hide pb-24"
         style={{ 
           scrollSnapType: 'y mandatory',
           WebkitOverflowScrolling: 'touch',
@@ -253,13 +328,31 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
                 <video
                   ref={(el) => {
                     videoRefs.current[index] = el
+                    if (el && index === currentIndex) {
+                      el.muted = true
+                      el.play().catch(() => {})
+                    }
                   }}
                   src={videoUrl}
                   className="w-full h-full object-contain bg-black"
+                  autoPlay
                   loop
                   playsInline
+                  preload="auto"
                   muted={isMuted}
                   onClick={handleVideoClick}
+                  onLoadedData={(e) => {
+                    if (index === currentIndex) {
+                      e.currentTarget.muted = true
+                      e.currentTarget.play().catch(() => {})
+                    }
+                  }}
+                  onCanPlay={(e) => {
+                    if (index === currentIndex) {
+                      e.currentTarget.muted = true
+                      e.currentTarget.play().catch(() => {})
+                    }
+                  }}
                   onLoadedMetadata={(e) => {
                     if (index === currentIndex) {
                       const d = e.currentTarget.duration || 0
@@ -286,84 +379,101 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
                 />
               </div>
 
-              {/* Overlay con información del autor, reacciones y barra de progreso */}
-              <div className="absolute inset-x-0 bottom-0 px-4 pt-4 pb-16 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
+              {/* Botones de reacción en vertical a la derecha (estilo Instagram) */}
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-5 pointer-events-auto z-10">
+                <button
+                  type="button"
+                  onClick={() => onLike(post.id)}
+                  className={`flex flex-col items-center gap-0.5 py-1 ${
+                    post.isLiked ? 'text-red-500' : 'text-white'
+                  }`}
+                >
+                  <svg
+                    className="w-8 h-8"
+                    fill={post.isLiked ? '#ef4444' : 'none'}
+                    stroke={post.isLiked ? 'none' : 'currentColor'}
+                    strokeWidth={post.isLiked ? 0 : 1.5}
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"
+                    />
+                  </svg>
+                  <span className="text-xs font-medium text-white">
+                    {(post as any).likesCount ?? post._count?.likes ?? 0}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onComment(post.id)}
+                  className="flex flex-col items-center gap-0.5 py-1 text-white"
+                >
+                  <svg
+                    className="w-8 h-8"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.444 3 12c0 2.104.859 4.023 2.273 5.488.348.332.697.638 1.05.94l-1.35 3.75 3.75-1.35c.302.353.608.702.94 1.05C7.977 19.141 9.896 20 12 20.25z"
+                    />
+                  </svg>
+                  <span className="text-xs font-medium text-white">
+                    {(post as any).commentsCount ?? post._count?.comments ?? 0}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onShare(post.id)}
+                  className="flex flex-col items-center gap-0.5 py-1 text-white"
+                >
+                  <svg
+                    className="w-8 h-8"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
+                    />
+                  </svg>
+                  <span className="text-xs font-medium text-white">Compartir</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSavePost(post.id)}
+                  className="flex flex-col items-center gap-0.5 py-1 text-white"
+                  title="Guardar en Guardados del perfil"
+                >
+                  <svg
+                    className="w-8 h-8"
+                    fill={savedIds.has(post.id) ? 'currentColor' : 'none'}
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
+                    />
+                  </svg>
+                  <span className="text-xs font-medium text-white">Guardar</span>
+                </button>
+              </div>
+
+              {/* Overlay con información del autor y barra de progreso (pb-24 para que la línea de tiempo no se esconda bajo el menú) */}
+              <div className="absolute inset-x-0 bottom-0 px-4 pt-4 pb-24 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
                 <div className="max-w-[420px] mx-auto flex flex-col gap-3">
-                  {/* Reacciones horizontales arriba */}
-                  <div className="flex items-center gap-2 pointer-events-auto">
-                    <button
-                      type="button"
-                      onClick={() => onLike(post.id)}
-                      className={`flex items-center gap-1.5 px-3 h-6 rounded-full transition-all ${
-                        post.isLiked
-                          ? 'bg-red-500/70'
-                          : 'bg-black/50'
-                      }`}
-                    >
-                      <svg
-                        className="w-5 h-5 text-white"
-                        fill={post.isLiked ? '#ef4444' : 'none'}
-                        stroke={post.isLiked ? 'none' : 'currentColor'}
-                        strokeWidth={post.isLiked ? 0 : 1.5}
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"
-                        />
-                      </svg>
-                      <span className="text-white text-sm font-medium">
-                        {(post as any).likesCount ?? post._count?.likes ?? 0}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onComment(post.id)}
-                      className="flex items-center gap-1.5 px-3 h-6 rounded-full bg-black/50 transition-all"
-                    >
-                      <svg
-                        className="w-5 h-5 text-white"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={1.5}
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.444 3 12c0 2.104.859 4.023 2.273 5.488.348.332.697.638 1.05.94l-1.35 3.75 3.75-1.35c.302.353.608.702.94 1.05C7.977 19.141 9.896 20 12 20.25z"
-                        />
-                      </svg>
-                      <span className="text-white text-sm font-medium">
-                        {(post as any).commentsCount ?? post._count?.comments ?? 0}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onShare(post.id)}
-                      className="flex items-center gap-1.5 px-3 h-6 rounded-full bg-black/50 transition-all"
-                    >
-                      <svg
-                        className="w-5 h-5 text-white"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={1.5}
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
-                        />
-                      </svg>
-                      <span className="text-white text-sm font-medium">Compartir</span>
-                    </button>
-                  </div>
-
-                  {/* Información del autor: en videos, misma fila que los botones (perfil izquierda, botones derecha) */}
+                  {/* Información del autor */}
                   <div className={`flex items-center pointer-events-auto ${variant === 'videos' ? 'justify-between gap-3' : ''}`}>
                     <button
                       type="button"
@@ -431,7 +541,7 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
                             >
                               <button
                                 type="button"
-                                onClick={() => { onSave?.(post.id); setShowMoreMenu(false) }}
+                                onClick={() => { handleSavePost(post.id); setShowMoreMenu(false) }}
                                 className="w-full px-4 py-2 text-left text-white text-sm hover:bg-gray-700/80 flex items-center gap-2"
                               >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -539,7 +649,7 @@ export function VideoFeed({ posts, initialIndex, onClose, onLike, onComment, onS
                                 className="absolute bottom-full right-0 mb-2 py-1 min-w-[160px] bg-gray-900/95 rounded-lg shadow-xl border border-gray-700"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                <button type="button" onClick={() => { onSave?.(post.id); setShowMoreMenu(false) }} className="w-full px-4 py-2 text-left text-white text-sm hover:bg-gray-700/80 flex items-center gap-2">
+                                <button type="button" onClick={() => { handleSavePost(post.id); setShowMoreMenu(false) }} className="w-full px-4 py-2 text-left text-white text-sm hover:bg-gray-700/80 flex items-center gap-2">
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
                                   Guardar
                                 </button>

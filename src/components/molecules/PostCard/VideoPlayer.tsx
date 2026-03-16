@@ -6,11 +6,35 @@ interface VideoPlayerProps {
   src: string
   className?: string
   fit?: 'cover' | 'contain'
+  /** Cuando true, reanudar reproducción (p. ej. al cerrar el modal del video) */
+  forcePlayVideo?: boolean
+  /** Para registrar tiempo de reproducción en el feed personalizado */
+  postId?: string
 }
 
-export function VideoPlayer({ src, className = '', fit = 'contain' }: VideoPlayerProps) {
+export function VideoPlayer({ src, className = '', fit = 'contain', forcePlayVideo = false, postId }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const watchStartRef = useRef<number | null>(null)
   const [isMuted, setIsMuted] = useState(false)
+
+  // Reanudar el video cuando se cierra el modal: siempre debe seguir reproduciéndose en el feed
+  useEffect(() => {
+    if (!forcePlayVideo) return
+    const play = () => {
+      const video = videoRef.current
+      if (!video) return
+      video.muted = true
+      video.play().catch(() => {})
+    }
+    const t1 = setTimeout(play, 50)
+    const t2 = setTimeout(play, 200)
+    const t3 = setTimeout(play, 450)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      clearTimeout(t3)
+    }
+  }, [forcePlayVideo])
 
   useEffect(() => {
     const video = videoRef.current
@@ -34,18 +58,28 @@ export function VideoPlayer({ src, className = '', fit = 'contain' }: VideoPlaye
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            // Reproducir automáticamente (muted para que funcione)
-            video.play().catch((error) => {
-              console.log('Autoplay blocked:', error)
-            })
+            watchStartRef.current = Date.now()
+            video.muted = true
+            video.play().catch(() => {})
           } else {
+            if (postId && watchStartRef.current !== null) {
+              const watchedSeconds = Math.floor((Date.now() - watchStartRef.current) / 1000)
+              if (watchedSeconds >= 1) {
+                fetch(`/api/posts/${postId}/view`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ watchedSeconds }),
+                }).catch(() => {})
+              }
+              watchStartRef.current = null
+            }
             video.pause()
           }
         })
       },
       {
-        threshold: 0.3,
-        rootMargin: '0px',
+        threshold: 0.15,
+        rootMargin: '50px 0px',
       }
     )
 
@@ -78,7 +112,7 @@ export function VideoPlayer({ src, className = '', fit = 'contain' }: VideoPlaye
       video.removeEventListener('click', handleClick)
       video.removeEventListener('play', handleUserInteraction)
     }
-  }, [])
+  }, [postId])
 
   const toggleMute = () => {
     const video = videoRef.current
@@ -96,6 +130,7 @@ export function VideoPlayer({ src, className = '', fit = 'contain' }: VideoPlaye
         ref={videoRef}
         src={src}
         controls
+        autoPlay
         preload="auto"
         loop
         playsInline

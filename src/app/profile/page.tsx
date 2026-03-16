@@ -25,6 +25,8 @@ export default function ProfilePage() {
   const { posts, likePost, refreshPost } = usePosts()
   const [selectedFeeling, setSelectedFeeling] = useState('')
   const [selectedTab, setSelectedTab] = useState('publicaciones')
+  const [savedPosts, setSavedPosts] = useState<Post[]>([])
+  const [savedPostsLoading, setSavedPostsLoading] = useState(false)
   const [selectedMediaIndex, setSelectedMediaIndex] = useState<number | null>(null)
   const [selectedPostForComments, setSelectedPostForComments] = useState<string | null>(null)
   const [selectedPostForShare, setSelectedPostForShare] = useState<string | null>(null)
@@ -39,12 +41,28 @@ export default function ProfilePage() {
   const viewedUserId = searchParams.get('userId') || userId
   const isProfileOwner = viewedUserId === userId
 
-  // Si estás viendo el perfil de otro, no mostrar pestaña Anónimos; asegurar tab válido
+  // Si estás viendo el perfil de otro, no mostrar pestaña Anónimos ni Guardados; asegurar tab válido
   useEffect(() => {
-    if (!isProfileOwner && selectedTab === 'anonimos') {
+    if (!isProfileOwner && (selectedTab === 'anonimos' || selectedTab === 'guardados')) {
       setSelectedTab('publicaciones')
     }
   }, [isProfileOwner, selectedTab])
+
+  // Cargar posts guardados (localStorage) cuando se abre la pestaña Guardados
+  useEffect(() => {
+    if (selectedTab !== 'guardados' || !isProfileOwner) return
+    const ids = JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('saved-posts') || '[]' : '[]') as string[]
+    if (ids.length === 0) {
+      setSavedPosts([])
+      return
+    }
+    setSavedPostsLoading(true)
+    fetch(`/api/posts/saved?ids=${ids.join(',')}`)
+      .then((res) => res.ok ? res.json() : { posts: [] })
+      .then((data) => setSavedPosts(data.posts || []))
+      .catch(() => setSavedPosts([]))
+      .finally(() => setSavedPostsLoading(false))
+  }, [selectedTab, isProfileOwner])
 
   // Crear 5 publicaciones mock del usuario actual
   const mockUserPosts: Post[] = useMemo(() => [
@@ -361,19 +379,25 @@ export default function ProfilePage() {
   }, [selectedPostForComments, refreshPost])
 
   const [selectedPostIndex, setSelectedPostIndex] = useState<number | null>(null)
+  const [viewingPostsSource, setViewingPostsSource] = useState<'user' | 'saved'>('user')
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
   const [selectedVideoIndex, setSelectedVideoIndex] = useState<number | null>(null)
 
   const handleImageClick = useCallback((postId: string) => {
-    // Abrir vista de feed
+    setViewingPostsSource('user')
     const index = userPosts.findIndex(p => p.id === postId)
-    if (index !== -1) {
-      setSelectedPostIndex(index)
-    }
+    if (index !== -1) setSelectedPostIndex(index)
   }, [userPosts])
+
+  const handleSavedPostClick = useCallback((postId: string) => {
+    setViewingPostsSource('saved')
+    const index = savedPosts.findIndex(p => p.id === postId)
+    if (index !== -1) setSelectedPostIndex(index)
+  }, [savedPosts])
 
   const handleClosePostViewer = useCallback(() => {
     setSelectedPostIndex(null)
+    setViewingPostsSource('user')
   }, [])
 
   const handleCloseImageGallery = useCallback(() => {
@@ -394,7 +418,7 @@ export default function ProfilePage() {
       label: 'YouTube',
     },
     {
-      url: 'https://www.facebook.com/share/16Y3...',
+      url: 'https://www.facebook.com',
       label: 'Facebook',
     },
   ]
@@ -525,7 +549,7 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* Links */}
+          {/* Links (se muestran por etiqueta para que sea coherente) */}
           <div className="space-y-1 mb-6 mt-4">
             {links.map((link, index) => (
               <a
@@ -533,33 +557,17 @@ export default function ProfilePage() {
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 text-gray-700 dark:text-white hover:text-gray-900 dark:hover:text-gray-200 text-sm break-all font-normal transition-colors"
+                className="flex items-center gap-2 text-gray-700 dark:text-white hover:text-gray-900 dark:hover:text-gray-200 text-sm font-normal transition-colors"
               >
-                {index === 0 ? (
-                  <>
-                    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                      />
-                    </svg>
-                    <span>{link.url}</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                      />
-                    </svg>
-                    <span>{link.url}</span>
-                  </>
-                )}
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                  />
+                </svg>
+                <span>{link.label || link.url}</span>
               </a>
             ))}
           </div>
@@ -577,7 +585,7 @@ export default function ProfilePage() {
                   : 'text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300'
               }`}
             >
-              Publicaciones
+              Público
             </button>
             {isProfileOwner && (
               <button
@@ -601,6 +609,18 @@ export default function ProfilePage() {
             >
               Listas
             </button>
+            {isProfileOwner && (
+              <button
+                onClick={() => setSelectedTab('guardados')}
+                className={`text-base font-bold transition-colors pb-2 ${
+                  selectedTab === 'guardados'
+                    ? 'text-primary-600 dark:text-primary-400 border-b-2 border-primary-600 dark:border-primary-400'
+                    : 'text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                Guardados
+              </button>
+            )}
           </div>
 
           {/* Anónimos Grid */}
@@ -724,6 +744,59 @@ export default function ProfilePage() {
               ) : (
                 <div className="col-span-3 text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
                   No hay publicaciones anónimas todavía
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Guardados */}
+          {selectedTab === 'guardados' && isProfileOwner && (
+            <div className="grid grid-cols-3 gap-px">
+              {savedPostsLoading ? (
+                <div className="col-span-3 text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
+                  Cargando guardados...
+                </div>
+              ) : savedPosts.length > 0 ? (
+                savedPosts
+                  .filter((post) => post.mediaUrl || (post.mediaUrls && post.mediaUrls.length > 0))
+                  .map((post) => {
+                    const isVideo = (url: string) => {
+                      const l = url.toLowerCase()
+                      return l.includes('.mp4') || l.includes('.webm') || l.includes('video') || l.includes('gtv-videos-bucket')
+                    }
+                    const allMedia: Array<{ url: string; type: 'image' | 'video' }> = []
+                    if (post.mediaUrl) allMedia.push({ url: post.mediaUrl, type: post.mediaType === 'video' || isVideo(post.mediaUrl) ? 'video' : 'image' })
+                    if (post.mediaUrls?.length) post.mediaUrls.forEach((url) => allMedia.push({ url, type: isVideo(url) ? 'video' : 'image' }))
+                    const displayMedia = allMedia[0]
+                    return (
+                      <div
+                        key={post.id}
+                        onClick={() => handleSavedPostClick(post.id)}
+                        className="bg-white dark:bg-dark-card overflow-hidden cursor-pointer shadow-md hover:shadow-lg transition-shadow relative"
+                      >
+                        <div className="aspect-square bg-gray-100 dark:bg-dark-hover relative">
+                          {displayMedia?.type === 'image' ? (
+                            <Image src={displayMedia.url} alt="Guardado" fill className="object-cover" sizes="33vw" />
+                          ) : displayMedia?.type === 'video' ? (
+                            <>
+                              <video src={displayMedia.url} className="w-full h-full object-cover" muted />
+                              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-black/50 rounded-full flex items-center justify-center">
+                                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                              </div>
+                            </>
+                          ) : null}
+                          {allMedia.length > 1 && (
+                            <div className="absolute top-2 right-2 bg-black/70 rounded px-1 py-0.5 min-w-[18px] min-h-[18px] flex items-center justify-center">
+                              <span className="text-white text-[9px] font-semibold">{allMedia.length}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
+              ) : (
+                <div className="col-span-3 text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
+                  No tienes publicaciones guardadas. Guarda posts desde el feed o un video.
                 </div>
               )}
             </div>
@@ -1037,8 +1110,8 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Post Viewer Modal - Similar to Feed */}
-      {selectedPostIndex !== null && userPosts.length > 0 && (
+      {/* Post Viewer Modal - Similar to Feed (user posts o guardados) */}
+      {selectedPostIndex !== null && (viewingPostsSource === 'saved' ? savedPosts : userPosts).length > 0 && (
         <div className="fixed inset-0 bg-gray-200 dark:bg-dark-bg z-50 overflow-y-auto">
           {/* Close Button */}
           <button
@@ -1052,7 +1125,7 @@ export default function ProfilePage() {
 
           {/* Posts Container - Full Width */}
           <div className="w-full pt-16 pb-8">
-            {userPosts.map((post, index) => (
+            {(viewingPostsSource === 'saved' ? savedPosts : userPosts).map((post, index) => (
               <div
                 key={post.id}
                 className="mb-4"
@@ -1072,8 +1145,8 @@ export default function ProfilePage() {
                   mediaType={post.mediaType}
                   mediaUrls={post.mediaUrls}
                   createdAt={post.createdAt}
-                  likesCount={post._count?.likes || 0}
-                  commentsCount={post._count?.comments || 0}
+                  likesCount={(post as any).likesCount ?? post._count?.likes ?? 0}
+                  commentsCount={(post as any).commentsCount ?? post._count?.comments ?? 0}
                   isLiked={post.isLiked || false}
                   postType={(post as any).postType}
                   intercessionsCount={(post as any).intercessionsCount}
@@ -1084,11 +1157,13 @@ export default function ProfilePage() {
                   onShare={handleShare}
                   onMenuClick={() => {}}
                   onVideoClick={(postId) => {
-                    const idx = userPosts.findIndex(p => p.id === postId)
+                    const list = viewingPostsSource === 'saved' ? savedPosts : userPosts
+                    const idx = list.findIndex(p => p.id === postId)
                     if (idx !== -1) setSelectedPostIndex(idx)
                   }}
                   onImageClick={(postId) => {
-                    const idx = userPosts.findIndex(p => p.id === postId)
+                    const list = viewingPostsSource === 'saved' ? savedPosts : userPosts
+                    const idx = list.findIndex(p => p.id === postId)
                     if (idx !== -1) setSelectedPostIndex(idx)
                   }}
                   onIntercede={() => {}}

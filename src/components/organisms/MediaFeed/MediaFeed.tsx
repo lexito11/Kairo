@@ -22,7 +22,7 @@ interface MediaItem {
 export function MediaFeed({ posts, initialIndex, onClose, onLike, onComment, onShare }: MediaFeedProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const [isPlaying, setIsPlaying] = useState(true)
-  const [isMuted, setIsMuted] = useState(false)
+  const [isMuted, setIsMuted] = useState(true)
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([])
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -236,10 +236,17 @@ export function MediaFeed({ posts, initialIndex, onClose, onLike, onComment, onS
                   src={mediaUrl}
                   className="w-full h-auto object-contain"
                   style={{ maxWidth: '100%' }}
+                  autoPlay
                   loop
                   playsInline
+                  preload="auto"
                   muted={isMuted}
                   onClick={handleVideoClick}
+                  onCanPlay={(e) => {
+                    if (index === currentIndex) {
+                      e.currentTarget.play().catch(() => {})
+                    }
+                  }}
                   onPlay={() => {
                     if (isActive) setIsPlaying(true)
                   }}

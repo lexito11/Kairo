@@ -29,5 +29,7 @@ export interface PostCardProps {
   onVideoClick?: (postId: string) => void
   onImageClick?: (postId: string) => void
   onIntercede?: (postId: string) => void // Callback visual (sin backend por ahora)
+  /** Cuando true, el video de la tarjeta debe reproducirse (p. ej. al cerrar el modal) */
+  forcePlayVideo?: boolean
 }
 
