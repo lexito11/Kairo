@@ -18,61 +18,6 @@ const denominationNames: Record<string, string> = {
   otra: 'Otra',
 }
 
-const EVENT_CATEGORIES = [
-  'Educación y Capacitación',
-  'Conferencias y Charlas',
-  'Deportes y Actividad Física',
-  'Arte y Cultura',
-  'Social y Familiar',
-  'Salud y Bienestar',
-  'Servicio y Acción Social',
-  'Gestión y Planeación',
-]
-
-const PARTICULAR_EVENT_TYPES = [
-  'Talleres',
-  'Seminarios',
-  'Webinars',
-  'Cursos',
-  'Clases Magistrales',
-  'Congresos',
-  'Paneles',
-  'Charlas TED',
-  'Ruedas de Prensa',
-  'Foros',
-  'Torneos',
-  'Campeonatos',
-  'Carreras',
-  'Maratones',
-  'Exhibiciones',
-  'Entrenamientos',
-  'Exposiciones',
-  'Festivales',
-  'Lanzamientos',
-  'Teatro',
-  'Cine',
-  'Conciertos',
-  'Bodas',
-  'Cumpleaños',
-  'Aniversarios',
-  'Reuniones',
-  'Fiestas',
-  'Galas',
-  'Retiros',
-  'Jornadas de Salud',
-  'Clases de Yoga',
-  'Meditación',
-  'Ferias',
-  'Colectas',
-  'Donatones',
-  'Voluntariados',
-  'Subastas',
-  'Campañas',
-  'Retiros Estratégicos',
-  'Asambleas',
-  'Sesiones de Brainstorming',
-]
-
 const CHRISTIAN_EVENT_TYPES = [
   'Cultos',
   'Estudios Bíblicos',
@@ -117,28 +62,20 @@ export default function EventsPage() {
   const [showInitialSelector, setShowInitialSelector] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [activeFilter, setActiveFilter] = useState<FilterType>('todos')
-  const [eventScope, setEventScope] = useState<'cristianos' | 'particulares' | 'iglesia'>('cristianos')
+  const [eventScope, setEventScope] = useState<'cristianos' | 'iglesia'>('cristianos')
   const [selectedEvent, setSelectedEvent] = useState<EventData | null>(null)
   const [showChurchRegistration, setShowChurchRegistration] = useState(false)
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedChristianCategories, setSelectedChristianCategories] = useState<string[]>([])
-  const [selectedParticularCategories, setSelectedParticularCategories] = useState<string[]>([])
   const [selectedChristianTypes, setSelectedChristianTypes] = useState<string[]>([])
-  const [selectedParticularTypes, setSelectedParticularTypes] = useState<string[]>([])
+  const [showParticularesInactive, setShowParticularesInactive] = useState(false)
+  const [showLiveSectionInfo, setShowLiveSectionInfo] = useState(false)
   const [churchFormData, setChurchFormData] = useState({
     name: '',
     denomination: '',
     city: '',
     password: ''
-  })
-  const [showCreateParticularEvent, setShowCreateParticularEvent] = useState(false)
-  const [particularEventForm, setParticularEventForm] = useState({
-    title: '',
-    category: '',
-    location: '',
-    date: '',
-    description: ''
   })
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -457,20 +394,6 @@ export default function EventsPage() {
           })
         })
       }
-    } else if (eventScope === 'particulares') {
-      if (selectedParticularCategories.length > 0) {
-        events = events.filter((event) =>
-          selectedParticularCategories.includes(event.category)
-        )
-      }
-      if (selectedParticularTypes.length > 0) {
-        events = events.filter((event) => {
-          const cat = event.category.toLowerCase()
-          return selectedParticularTypes.some((type) =>
-            cat.includes(type.toLowerCase())
-          )
-        })
-      }
     }
 
     // Aplicar filtro de búsqueda
@@ -578,7 +501,7 @@ export default function EventsPage() {
         <header className="bg-white dark:bg-dark-bg border-b border-gray-200 dark:border-dark-border sticky top-0 z-10 px-4 py-4">
           <div className="flex flex-col gap-4">
             
-            {/* Cristianos | Particulares | Iglesia (si pertenece) */}
+            {/* Cristianos | Iglesia (si pertenece) */}
             <div className="flex items-center gap-6 border-b border-gray-200 dark:border-dark-border pb-2">
               <button
                 onClick={() => setEventScope('cristianos')}
@@ -591,16 +514,13 @@ export default function EventsPage() {
                 Cristianos
               </button>
               <button
-                onClick={() => setEventScope('particulares')}
-                className={`text-base font-bold transition-colors pb-2 border-b-2 -mb-0.5 ${
-                  eventScope === 'particulares'
-                    ? 'text-gray-900 dark:text-white border-gray-900 dark:border-white'
-                    : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'
-                }`}
+                type="button"
+                onClick={() => setShowParticularesInactive(true)}
+                className="text-base font-bold transition-colors pb-2 border-b-2 -mb-0.5 text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300"
               >
                 Particulares
               </button>
-              {selectedDenomination && eventScope !== 'particulares' && (
+              {selectedDenomination && (
                 <button
                   onClick={() => setEventScope('iglesia')}
                   className={`text-base font-bold transition-colors pb-2 border-b-2 -mb-0.5 ${
@@ -614,8 +534,7 @@ export default function EventsPage() {
               )}
             </div>
 
-            {/* Denomination Selector (no mostrar en Particulares) */}
-            {eventScope !== 'particulares' && (
+            {/* Denomination Selector */}
             <div className="flex items-center gap-3">
               <div className="relative group" ref={dropdownRef}>
                 <button 
@@ -677,11 +596,16 @@ export default function EventsPage() {
               </div>
               <span className="text-gray-400 text-sm hidden sm:inline">Mostrando eventos de tu fe</span>
             </div>
-            )}
 
             {/* Actions */}
             <div className="flex items-center gap-3">
-              <button className="w-10 h-10 rounded-full bg-gray-100 dark:bg-dark-hover hover:bg-gray-200 dark:hover:bg-dark-border flex items-center justify-center text-gray-600 dark:text-gray-400 transition-colors relative">
+              <button
+                type="button"
+                onClick={() => setShowLiveSectionInfo(true)}
+                className="w-10 h-10 rounded-full bg-gray-100 dark:bg-dark-hover hover:bg-gray-200 dark:hover:bg-dark-border flex items-center justify-center text-gray-600 dark:text-gray-400 transition-colors relative"
+                aria-label="Transmisiones en vivo"
+                title="Transmisiones en vivo"
+              >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                 </svg>
@@ -721,15 +645,11 @@ export default function EventsPage() {
 
               <button 
                 onClick={() => {
-                  if (eventScope === 'particulares') {
-                    setShowCreateParticularEvent(true)
+                  const hasRegisteredChurch = localStorage.getItem('hasRegisteredChurch')
+                  if (!hasRegisteredChurch) {
+                    setShowChurchRegistration(true)
                   } else {
-                    const hasRegisteredChurch = localStorage.getItem('hasRegisteredChurch')
-                    if (!hasRegisteredChurch) {
-                      setShowChurchRegistration(true)
-                    } else {
-                      console.log('Crear evento (cristianos/iglesia)')
-                    }
+                    console.log('Crear evento (cristianos/iglesia)')
                   }
                 }}
                 className="bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2"
@@ -1099,6 +1019,70 @@ export default function EventsPage() {
       {/* Bottom Navigation */}
       <BottomNavigation />
 
+      {/* Particulares inactivo temporalmente */}
+      {showParticularesInactive && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowParticularesInactive(false)}
+        >
+          <div
+            className="bg-dark-card rounded-2xl max-w-md w-full border border-dark-border shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-white">Particulares</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowParticularesInactive(false)}
+                  className="w-8 h-8 bg-dark-hover rounded-full flex items-center justify-center text-gray-400 hover:text-white transition-colors"
+                  aria-label="Cerrar"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-gray-300">
+                Inactivo temporalmente hasta la nueva actualizacion
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transmisiones en vivo (inactivo) */}
+      {showLiveSectionInfo && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowLiveSectionInfo(false)}
+        >
+          <div
+            className="bg-dark-card rounded-2xl max-w-md w-full border border-dark-border shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-white">Transmisiones en vivo</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowLiveSectionInfo(false)}
+                  className="w-8 h-8 bg-dark-hover rounded-full flex items-center justify-center text-gray-400 hover:text-white transition-colors"
+                  aria-label="Cerrar"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-gray-300">
+                Esta secion en para ver transmisiones en envivo y estara activo para la proxima actualización
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Panel de Filtros */}
       {showFilterPanel && (
         <div
@@ -1124,17 +1108,17 @@ export default function EventsPage() {
 
             {/* Contenido scrolleable */}
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
-              {/* Categorías */}
+              {/* Denominaciones */}
               <section>
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-bold text-white">Categorías</h3>
+                  <h3 className="font-bold text-white">Denominaciones</h3>
                   <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                   </svg>
                 </div>
                 <p className="text-sm text-gray-400 mb-3">Selecciona una o más</p>
                 <div className="space-y-2">
-                  {(eventScope === 'particulares' ? EVENT_CATEGORIES : CHRISTIAN_DENOMINATION_CATEGORIES).map((name, index) => {
+                  {CHRISTIAN_DENOMINATION_CATEGORIES.map((name, index) => {
                     const colorClasses = [
                       'bg-cyan-500',
                       'bg-red-500',
@@ -1146,25 +1130,16 @@ export default function EventsPage() {
                       'bg-indigo-500',
                     ]
                     const color = colorClasses[index % colorClasses.length]
-                    const isSelected =
-                      eventScope === 'particulares'
-                        ? selectedParticularCategories.includes(name)
-                        : selectedChristianCategories.includes(name)
+                    const isSelected = selectedChristianCategories.includes(name)
 
                     return (
                       <button
                         key={name}
                         type="button"
                         onClick={() => {
-                          if (eventScope === 'particulares') {
-                            setSelectedParticularCategories((prev) =>
-                              prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]
-                            )
-                          } else {
-                            setSelectedChristianCategories((prev) =>
-                              prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]
-                            )
-                          }
+                          setSelectedChristianCategories((prev) =>
+                            prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]
+                          )
                         }}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors ${
                           isSelected
@@ -1189,38 +1164,20 @@ export default function EventsPage() {
                   </svg>
                 </div>
                 <p className="text-sm text-gray-400 mb-3">
-                  {eventScope === 'particulares'
-                    ? selectedParticularTypes.length === 0
-                      ? 'Todos'
-                      : 'Filtrando por tipo'
-                    : selectedChristianTypes.length === 0
-                      ? 'Todos'
-                      : 'Filtrando por tipo'}
+                  {selectedChristianTypes.length === 0 ? 'Todos' : 'Filtrando por tipo'}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {(eventScope === 'particulares' ? PARTICULAR_EVENT_TYPES : CHRISTIAN_EVENT_TYPES).map((tipo) => {
-                    const isSelected =
-                      eventScope === 'particulares'
-                        ? selectedParticularTypes.includes(tipo)
-                        : selectedChristianTypes.includes(tipo)
-
-                    const toggle = () => {
-                      if (eventScope === 'particulares') {
-                        setSelectedParticularTypes((prev) =>
-                          prev.includes(tipo) ? prev.filter((t) => t !== tipo) : [...prev, tipo]
-                        )
-                      } else {
-                        setSelectedChristianTypes((prev) =>
-                          prev.includes(tipo) ? prev.filter((t) => t !== tipo) : [...prev, tipo]
-                        )
-                      }
-                    }
-
+                  {CHRISTIAN_EVENT_TYPES.map((tipo) => {
+                    const isSelected = selectedChristianTypes.includes(tipo)
                     return (
                       <button
                         key={tipo}
                         type="button"
-                        onClick={toggle}
+                        onClick={() =>
+                          setSelectedChristianTypes((prev) =>
+                            prev.includes(tipo) ? prev.filter((t) => t !== tipo) : [...prev, tipo]
+                          )
+                        }
                         className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                           isSelected
                             ? 'bg-primary-500 text-white'
@@ -1494,129 +1451,6 @@ export default function EventsPage() {
         </div>
       )}
 
-      {/* Modal Crear evento (Particulares) - con categoría */}
-      {showCreateParticularEvent && (
-        <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          onClick={() => setShowCreateParticularEvent(false)}
-        >
-          <div
-            className="bg-white dark:bg-dark-card rounded-2xl max-w-md w-full border border-gray-200 dark:border-dark-border shadow-2xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Crear evento</h2>
-                <button
-                  onClick={() => setShowCreateParticularEvent(false)}
-                  className="w-8 h-8 bg-gray-100 dark:bg-dark-hover rounded-full flex items-center justify-center text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  console.log('Evento particular:', particularEventForm)
-                  setShowCreateParticularEvent(false)
-                  setParticularEventForm({ title: '', category: '', location: '', date: '', description: '' })
-                }}
-                className="space-y-4"
-              >
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Título del evento
-                  </label>
-                  <input
-                    type="text"
-                    value={particularEventForm.title}
-                    onChange={(e) => setParticularEventForm({ ...particularEventForm, title: e.target.value })}
-                    className="w-full px-4 py-2 bg-gray-100 dark:bg-dark-hover border border-gray-200 dark:border-dark-border rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors"
-                    placeholder="Ej. Taller de oración"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Categoría
-                  </label>
-                  <select
-                    value={particularEventForm.category}
-                    onChange={(e) => setParticularEventForm({ ...particularEventForm, category: e.target.value })}
-                    className="w-full px-4 py-2 bg-gray-100 dark:bg-dark-hover border border-gray-200 dark:border-dark-border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:border-primary-500 transition-colors"
-                    required
-                  >
-                    <option value="">Selecciona una categoría</option>
-                    {EVENT_CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat} className="bg-white dark:bg-dark-card">
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Lugar o dirección
-                  </label>
-                  <input
-                    type="text"
-                    value={particularEventForm.location}
-                    onChange={(e) => setParticularEventForm({ ...particularEventForm, location: e.target.value })}
-                    className="w-full px-4 py-2 bg-gray-100 dark:bg-dark-hover border border-gray-200 dark:border-dark-border rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors"
-                    placeholder="Ej. Parque central, sala comunal"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Fecha
-                  </label>
-                  <input
-                    type="date"
-                    value={particularEventForm.date}
-                    onChange={(e) => setParticularEventForm({ ...particularEventForm, date: e.target.value })}
-                    className="w-full px-4 py-2 bg-gray-100 dark:bg-dark-hover border border-gray-200 dark:border-dark-border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:border-primary-500 transition-colors"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Descripción (opcional)
-                  </label>
-                  <textarea
-                    value={particularEventForm.description}
-                    onChange={(e) => setParticularEventForm({ ...particularEventForm, description: e.target.value })}
-                    className="w-full px-4 py-2 bg-gray-100 dark:bg-dark-hover border border-gray-200 dark:border-dark-border rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:border-primary-500 transition-colors resize-none"
-                    placeholder="Breve descripción del evento"
-                    rows={3}
-                  />
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateParticularEvent(false)}
-                    className="flex-1 py-3 px-4 bg-gray-100 dark:bg-dark-hover hover:bg-gray-200 dark:hover:bg-dark-border text-gray-900 dark:text-gray-300 font-medium rounded-lg transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 py-3 px-4 bg-primary-500 hover:bg-primary-600 text-white font-medium rounded-lg transition-colors"
-                  >
-                    Crear evento
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

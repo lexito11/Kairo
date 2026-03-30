@@ -5,7 +5,7 @@ import { VideoFeed } from '@/components/organisms/VideoFeed'
 import { CommentsModal } from '@/components/organisms/CommentsModal'
 import { ShareModal } from '@/components/organisms/ShareModal'
 import { useCallback, useState, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Post } from '@/types'
 
 type VideoPost = Post & {
@@ -22,6 +22,7 @@ interface RecommendedVideosResponse {
 }
 
 export default function VideosPage() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const [videos, setVideos] = useState<VideoPost[]>([])
   const [loading, setLoading] = useState(true)
@@ -135,7 +136,8 @@ export default function VideosPage() {
 
   const handleCloseVideoFeed = useCallback(() => {
     setSelectedVideoIndex(null)
-  }, [])
+    router.push('/feed')
+  }, [router])
 
   return (
     <div className="h-screen bg-gray-200 dark:bg-dark-bg flex flex-col overflow-hidden">
