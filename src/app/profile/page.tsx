@@ -13,10 +13,24 @@ import { usePosts } from '@/hooks/usePosts'
 import { Post } from '@/types'
 import Image from 'next/image'
 
+function isAnonymousPost(post: Post): boolean {
+  return (
+    (post as Post & { isAnonymous?: boolean }).isAnonymous === true ||
+    (post as Post & { privacy?: string }).privacy === 'anonymous'
+  )
+}
+
+function handleFromSessionEmail(email: string | null | undefined): string {
+  if (!email) return 'alex_perea11'
+  const local = email.split('@')[0]
+  return local.replace(/[^a-zA-Z0-9_]/g, '_') || 'usuario'
+}
+
 interface UserStats {
-  siguiendo: number
-  seguidores: number
+  agregados: number
+  teAgregaron: number
   meGusta: number
+  amigos: number
 }
 
 export default function ProfilePage() {
@@ -30,16 +44,77 @@ export default function ProfilePage() {
   const [selectedMediaIndex, setSelectedMediaIndex] = useState<number | null>(null)
   const [selectedPostForComments, setSelectedPostForComments] = useState<string | null>(null)
   const [selectedPostForShare, setSelectedPostForShare] = useState<string | null>(null)
+  const [remoteProfile, setRemoteProfile] = useState<{
+    user: { id: string; name: string | null; username: string | null; image: string | null; bio: string | null }
+    agregados: number
+    teAgregaron: number
+    viewerHasAdded: boolean
+  } | null>(null)
+  const [followActionLoading, setFollowActionLoading] = useState(false)
+  const [viewerPosts, setViewerPosts] = useState<Post[]>([])
+  const [myPostsFromApi, setMyPostsFromApi] = useState<Post[] | null>(null)
+  const [socialSummary, setSocialSummary] = useState<{ unreadCount: number; friendsCount: number } | null>(
+    null
+  )
 
-  // Datos de ejemplo del usuario
-  const displayName = 'Alex Perea'
-  const displayUsername = '@alex_perea11'
-  const userId = session?.user?.id || 'user-1' // ID temporal del usuario
+  const userId = session?.user?.id || 'user-1'
   const searchParams = useSearchParams()
-  // Si en la URL viene otro userId (ej. /profile?userId=xxx), es el perfil de otro usuario.
-  // Anónimos solo se muestra cuando es tu propio perfil (isProfileOwner).
   const viewedUserId = searchParams.get('userId') || userId
   const isProfileOwner = viewedUserId === userId
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/users/${viewedUserId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.user) return
+        setRemoteProfile({
+          user: data.user,
+          agregados: data.agregados ?? 0,
+          teAgregaron: data.teAgregaron ?? 0,
+          viewerHasAdded: !!data.viewerHasAdded,
+        })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [viewedUserId])
+
+  useEffect(() => {
+    if (!isProfileOwner || !session?.user?.id) {
+      setMyPostsFromApi(null)
+      return
+    }
+    let cancelled = false
+    const loadOwnerData = () => {
+      fetch('/api/users/me/social-summary')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (cancelled || !data) return
+          setSocialSummary({
+            unreadCount: data.unreadCount ?? 0,
+            friendsCount: data.friendsCount ?? 0,
+          })
+        })
+        .catch(() => {})
+      fetch('/api/posts?mine=1&limit=100')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (cancelled) return
+          setMyPostsFromApi((data?.posts as Post[]) ?? [])
+        })
+        .catch(() => {
+          if (!cancelled) setMyPostsFromApi([])
+        })
+    }
+    loadOwnerData()
+    window.addEventListener('focus', loadOwnerData)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', loadOwnerData)
+    }
+  }, [isProfileOwner, session?.user?.id, viewedUserId])
 
   // Si estás viendo el perfil de otro, no mostrar pestaña Anónimos ni Guardados; asegurar tab válido
   useEffect(() => {
@@ -64,8 +139,11 @@ export default function ProfilePage() {
       .finally(() => setSavedPostsLoading(false))
   }, [selectedTab, isProfileOwner])
 
-  // Crear 5 publicaciones mock del usuario actual
-  const mockUserPosts: Post[] = useMemo(() => [
+  const mockUserPosts: Post[] = useMemo(() => {
+    if (viewedUserId !== userId) return []
+    const displayName = session?.user?.name || 'Alex Perea'
+    const displayUsername = `@${handleFromSessionEmail(session?.user?.email)}`
+    return [
     {
       id: 'user-post-1',
       content: 'Bendecido por este hermoso día 🙏❤️',
@@ -248,36 +326,36 @@ export default function ProfilePage() {
       isLiked: true,
       isAnonymous: true,
     },
-  ], [userId])
+  ]
+  }, [userId, viewedUserId, session?.user?.name, session?.user?.email])
 
-  // Combinar publicaciones mock con las reales del usuario
   const userPosts = useMemo(() => {
-    const realUserPosts = posts.filter((post: Post) => {
-      return post.authorId === userId
-    })
-    // Combinar y ordenar por fecha (más recientes primero)
-    const allPosts = [...mockUserPosts, ...realUserPosts].sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    const realUserPosts =
+      isProfileOwner && myPostsFromApi !== null
+        ? myPostsFromApi
+        : posts.filter((post: Post) => post.authorId === viewedUserId)
+    const allPosts = [...mockUserPosts, ...realUserPosts].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     )
     return allPosts
-  }, [posts, userId, mockUserPosts])
+  }, [posts, viewedUserId, mockUserPosts, isProfileOwner, myPostsFromApi])
+
+  const publicProfilePosts = useMemo(
+    () => userPosts.filter((post) => !isAnonymousPost(post)),
+    [userPosts]
+  )
 
   // Filtrar solo publicaciones anónimas del usuario
-  const anonymousPosts = useMemo(() => {
-    // Filtrar publicaciones anónimas (por ahora verificamos si tiene algún campo que indique que es anónima)
-    // TODO: Ajustar la condición según cómo se identifiquen las publicaciones anónimas en tu esquema
-    return userPosts.filter((post: Post) => {
-      // Por ahora, asumimos que las anónimas tienen un campo isAnonymous o privacy === 'anonymous'
-      // Si no existe, puedes usar otra propiedad según tu esquema
-      return (post as any).isAnonymous === true || (post as any).privacy === 'anonymous'
-    })
-  }, [userPosts])
+  const anonymousPosts = useMemo(
+    () => userPosts.filter((post) => isAnonymousPost(post)),
+    [userPosts]
+  )
 
   // Extraer todas las imágenes individuales de las publicaciones del usuario
   const userImages = useMemo(() => {
     const images: Array<{ url: string; postId: string; createdAt: Date }> = []
     
-    userPosts.forEach(post => {
+    publicProfilePosts.forEach((post) => {
       // Si tiene mediaUrl y es imagen
       if (post.mediaUrl && post.mediaType === 'image') {
         images.push({
@@ -312,7 +390,7 @@ export default function ProfilePage() {
     return images.sort((a, b) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     )
-  }, [userPosts])
+  }, [publicProfilePosts])
 
   // Extraer todos los videos individuales de las publicaciones del usuario
   const userVideos = useMemo(() => {
@@ -327,7 +405,7 @@ export default function ProfilePage() {
              lowerUrl.includes('gtv-videos-bucket')
     }
     
-    userPosts.forEach(post => {
+    publicProfilePosts.forEach((post) => {
       // Si tiene mediaUrl y es video
       if (post.mediaUrl && (post.mediaType === 'video' || isVideo(post.mediaUrl))) {
         videos.push({
@@ -355,7 +433,7 @@ export default function ProfilePage() {
     return videos.sort((a, b) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     )
-  }, [userPosts])
+  }, [publicProfilePosts])
 
   const handleLike = useCallback(
     (postId: string) => {
@@ -383,11 +461,22 @@ export default function ProfilePage() {
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
   const [selectedVideoIndex, setSelectedVideoIndex] = useState<number | null>(null)
 
-  const handleImageClick = useCallback((postId: string) => {
+  const handleImageClick = useCallback(
+    (postId: string) => {
+      setViewingPostsSource('user')
+      setViewerPosts(publicProfilePosts)
+      const index = publicProfilePosts.findIndex((p) => p.id === postId)
+      if (index !== -1) setSelectedPostIndex(index)
+    },
+    [publicProfilePosts]
+  )
+
+  const handleAnonymousPostClick = useCallback((postId: string) => {
     setViewingPostsSource('user')
-    const index = userPosts.findIndex(p => p.id === postId)
+    setViewerPosts(anonymousPosts)
+    const index = anonymousPosts.findIndex((p) => p.id === postId)
     if (index !== -1) setSelectedPostIndex(index)
-  }, [userPosts])
+  }, [anonymousPosts])
 
   const handleSavedPostClick = useCallback((postId: string) => {
     setViewingPostsSource('saved')
@@ -398,7 +487,37 @@ export default function ProfilePage() {
   const handleClosePostViewer = useCallback(() => {
     setSelectedPostIndex(null)
     setViewingPostsSource('user')
+    setViewerPosts([])
   }, [])
+
+  const handleToggleAgregar = useCallback(async () => {
+    if (!session?.user?.id) {
+      router.push('/auth/signin')
+      return
+    }
+    if (isProfileOwner) return
+    setFollowActionLoading(true)
+    try {
+      const adding = !remoteProfile?.viewerHasAdded
+      const res = await fetch(`/api/users/${viewedUserId}/follow`, {
+        method: adding ? 'POST' : 'DELETE',
+      })
+      if (!res.ok) throw new Error()
+      setRemoteProfile((prev) => {
+        if (!prev) return prev
+        const delta = adding ? 1 : -1
+        return {
+          ...prev,
+          viewerHasAdded: adding,
+          teAgregaron: Math.max(0, prev.teAgregaron + delta),
+        }
+      })
+    } catch {
+      alert('No se pudo actualizar. Intenta de nuevo.')
+    } finally {
+      setFollowActionLoading(false)
+    }
+  }, [session?.user?.id, isProfileOwner, remoteProfile?.viewerHasAdded, router, viewedUserId])
 
   const handleCloseImageGallery = useCallback(() => {
     setSelectedImageIndex(null)
@@ -409,8 +528,26 @@ export default function ProfilePage() {
   }, [])
 
 
-  const userImage = null
-  const bio = 'Solo sea Feliz 😊❤️💕'
+  const fallbackAuthor = publicProfilePosts[0]?.author
+  const displayName = !isProfileOwner
+    ? remoteProfile?.user?.name ||
+      fallbackAuthor?.name ||
+      fallbackAuthor?.username ||
+      'Usuario'
+    : session?.user?.name || 'Alex Perea'
+  const displayUsername = !isProfileOwner
+    ? remoteProfile?.user?.username
+      ? `@${remoteProfile.user.username}`
+      : fallbackAuthor?.username
+        ? `@${fallbackAuthor.username}`
+        : '@usuario'
+    : `@${handleFromSessionEmail(session?.user?.email)}`
+  const userImage = !isProfileOwner
+    ? remoteProfile?.user?.image ?? fallbackAuthor?.image ?? null
+    : session?.user?.image ?? null
+  const bio = !isProfileOwner
+    ? remoteProfile?.user?.bio || 'Sin biografía aún.'
+    : 'Solo sea Feliz 😊❤️💕'
   const statusMessage = 'Feliz Año Nuevo 🎉🎊✨'
   const links = [
     {
@@ -424,9 +561,10 @@ export default function ProfilePage() {
   ]
 
   const stats: UserStats = {
-    siguiendo: 253,
-    seguidores: 41100,
+    agregados: remoteProfile?.agregados ?? 253,
+    teAgregaron: remoteProfile?.teAgregaron ?? 41100,
     meGusta: 142000,
+    amigos: socialSummary?.friendsCount ?? 0,
   }
 
   const formatNumber = (num: number): string => {
@@ -455,16 +593,31 @@ export default function ProfilePage() {
             </svg>
           </button>
           <div className="flex items-center gap-3">
-            <button className="w-10 h-10 flex items-center justify-center text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-hover rounded-full transition-colors">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
+            {isProfileOwner && (
+              <button
+                type="button"
+                onClick={() => router.push('/notifications')}
+                className="relative w-10 h-10 flex items-center justify-center text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-hover rounded-full transition-colors"
+                aria-label="Notificaciones"
+              >
+                <svg
+                  className={`w-6 h-6 ${(socialSummary?.unreadCount ?? 0) > 0 ? 'text-blue-500' : 'text-gray-500 dark:text-gray-400'}`}
+                  viewBox="0 0 24 24"
+                  fill={(socialSummary?.unreadCount ?? 0) > 0 ? 'currentColor' : 'none'}
+                  stroke={(socialSummary?.unreadCount ?? 0) > 0 ? 'none' : 'currentColor'}
+                  strokeWidth={1.75}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
-                />
-              </svg>
-            </button>
+                >
+                  <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+                {(socialSummary?.unreadCount ?? 0) > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-blue-500 text-white text-[10px] font-bold leading-[18px] text-center">
+                    {(socialSummary?.unreadCount ?? 0) > 99 ? '99+' : socialSummary?.unreadCount}
+                  </span>
+                )}
+              </button>
+            )}
             <button className="w-10 h-10 flex items-center justify-center text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-hover rounded-full transition-colors">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -475,20 +628,24 @@ export default function ProfilePage() {
                 />
               </svg>
             </button>
-            <button
-              onClick={() => router.push('/settings')}
-              className="w-10 h-10 flex items-center justify-center text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-hover rounded-full transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
+            {isProfileOwner && (
+              <button
+                type="button"
+                onClick={() => router.push('/settings')}
+                className="w-10 h-10 flex items-center justify-center text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-hover rounded-full transition-colors"
+                aria-label="Ajustes"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </button>
+            )}
           </div>
         </header>
 
@@ -511,45 +668,77 @@ export default function ProfilePage() {
                   </div>
                 )}
               </div>
-              <button className="absolute bottom-0 right-0 w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center text-white shadow-lg border-2 border-white dark:border-dark-bg hover:bg-primary-600 transition-colors">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
+              {isProfileOwner && (
+                <button
+                  type="button"
+                  className="absolute bottom-0 right-0 w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center text-white shadow-lg border-2 border-white dark:border-dark-bg hover:bg-primary-600 transition-colors"
+                  aria-label="Cambiar foto de perfil"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              )}
             </div>
 
             {/* Derecha: nombre (con editar en esquina), usuario, estadísticas */}
             <div className="flex flex-col min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <h1 className="text-xl font-black text-gray-900 dark:text-white tracking-tight leading-tight">{displayName}</h1>
-                <button
-                  className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md border border-gray-300 dark:border-gray-500 bg-transparent hover:bg-gray-100 dark:hover:bg-dark-hover text-gray-600 dark:text-gray-300 transition-colors"
-                  aria-label="Editar perfil"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </button>
+                {isProfileOwner && (
+                  <button
+                    type="button"
+                    className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md border border-gray-300 dark:border-gray-500 bg-transparent hover:bg-gray-100 dark:hover:bg-dark-hover text-gray-600 dark:text-gray-300 transition-colors"
+                    aria-label="Editar perfil"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                )}
               </div>
               <p className="text-gray-500 dark:text-gray-400 text-sm font-normal mt-0.5">{displayUsername}</p>
-              <div className="flex gap-4 mt-3">
+              <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3">
                 <div>
-                  <p className="text-gray-900 dark:text-white font-bold text-base leading-none">{stats.siguiendo}</p>
-                  <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-0.5">Siguiendo</p>
+                  <p className="text-gray-900 dark:text-white font-bold text-base leading-none">{stats.agregados}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-0.5">Agregados</p>
                 </div>
                 <div>
-                  <p className="text-gray-900 dark:text-white font-bold text-base leading-none">{formatNumber(stats.seguidores)}</p>
-                  <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-0.5">Seguidores</p>
+                  <p className="text-gray-900 dark:text-white font-bold text-base leading-none">{formatNumber(stats.teAgregaron)}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-0.5">Te agregaron</p>
                 </div>
+                {isProfileOwner && (
+                  <div>
+                    <p className="text-gray-900 dark:text-white font-bold text-base leading-none">
+                      {formatNumber(stats.amigos)}
+                    </p>
+                    <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-0.5">Amigos</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-gray-900 dark:text-white font-bold text-base leading-none">{formatNumber(stats.meGusta)}</p>
                   <p className="text-gray-500 dark:text-gray-400 text-xs font-normal mt-0.5">Me gusta</p>
                 </div>
               </div>
+              {!isProfileOwner && (
+                <button
+                  type="button"
+                  onClick={handleToggleAgregar}
+                  disabled={followActionLoading}
+                  className="mt-3 w-full py-2.5 rounded-xl font-semibold text-sm bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-60 transition-colors"
+                >
+                  {followActionLoading
+                    ? '…'
+                    : remoteProfile?.viewerHasAdded
+                      ? 'Agregado'
+                      : 'Agregar'}
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Links (se muestran por etiqueta para que sea coherente) */}
+          {/* Links (solo en tu perfil por ahora) */}
+          {isProfileOwner && (
           <div className="space-y-1 mb-6 mt-4">
             {links.map((link, index) => (
               <a
@@ -571,9 +760,12 @@ export default function ProfilePage() {
               </a>
             ))}
           </div>
+          )}
 
-          {/* Feelings Selector */}
-          <FeelingsSelector selectedFeeling={selectedFeeling} onFeelingChange={setSelectedFeeling} />
+          {/* Feelings Selector (solo en tu perfil) */}
+          {isProfileOwner && (
+            <FeelingsSelector selectedFeeling={selectedFeeling} onFeelingChange={setSelectedFeeling} />
+          )}
 
           {/* Navigation Tabs */}
           <div className="flex items-center justify-center gap-4 mb-4 border-b border-gray-200 dark:border-dark-border pb-1 mt-0">
@@ -683,7 +875,7 @@ export default function ProfilePage() {
                   return (
                     <div
                       key={post.id}
-                      onClick={() => handleImageClick(post.id)}
+                      onClick={() => handleAnonymousPostClick(post.id)}
                       className="bg-white dark:bg-dark-card overflow-hidden cursor-pointer shadow-md hover:shadow-lg transition-shadow relative"
                     >
                       {/* Media */}
@@ -805,7 +997,7 @@ export default function ProfilePage() {
           {/* Listas */}
           {selectedTab === 'listas' && (
             <div className="divide-y divide-gray-200 dark:divide-dark-border">
-              {userPosts.slice(0, 10).map((post) => {
+              {publicProfilePosts.slice(0, 10).map((post) => {
                 const likesCount = post._count?.likes ?? 0
                 const commentsCount = post._count?.comments ?? 0
                 const dateStr = new Date(post.createdAt).toLocaleDateString('es', { day: 'numeric', month: 'short' })
@@ -841,7 +1033,7 @@ export default function ProfilePage() {
                   </div>
                 )
               })}
-              {userPosts.length === 0 && (
+              {publicProfilePosts.length === 0 && (
                 <div className="py-8 text-center text-gray-500 dark:text-gray-400 text-sm">
                   Tus listas aparecerán aquí
                 </div>
@@ -852,8 +1044,8 @@ export default function ProfilePage() {
           {/* Publicaciones Grid */}
           {selectedTab === 'publicaciones' && (
             <div className="grid grid-cols-3 gap-px">
-              {userPosts.length > 0 ? (
-                userPosts
+              {publicProfilePosts.length > 0 ? (
+                publicProfilePosts
                   .filter((post) => {
                     // Solo mostrar publicaciones que tengan al menos un medio
                     return post.mediaUrl || (post.mediaUrls && post.mediaUrls.length > 0)
@@ -1111,7 +1303,7 @@ export default function ProfilePage() {
       )}
 
       {/* Post Viewer Modal - Similar to Feed (user posts o guardados) */}
-      {selectedPostIndex !== null && (viewingPostsSource === 'saved' ? savedPosts : userPosts).length > 0 && (
+      {selectedPostIndex !== null && (viewingPostsSource === 'saved' ? savedPosts : viewerPosts).length > 0 && (
         <div className="fixed inset-0 bg-gray-200 dark:bg-dark-bg z-50 overflow-y-auto">
           {/* Close Button */}
           <button
@@ -1125,7 +1317,7 @@ export default function ProfilePage() {
 
           {/* Posts Container - Full Width */}
           <div className="w-full pt-16 pb-8">
-            {(viewingPostsSource === 'saved' ? savedPosts : userPosts).map((post, index) => (
+            {(viewingPostsSource === 'saved' ? savedPosts : viewerPosts).map((post, index) => (
               <div
                 key={post.id}
                 className="mb-4"
@@ -1157,12 +1349,12 @@ export default function ProfilePage() {
                   onShare={handleShare}
                   onMenuClick={() => {}}
                   onVideoClick={(postId) => {
-                    const list = viewingPostsSource === 'saved' ? savedPosts : userPosts
+                    const list = viewingPostsSource === 'saved' ? savedPosts : viewerPosts
                     const idx = list.findIndex(p => p.id === postId)
                     if (idx !== -1) setSelectedPostIndex(idx)
                   }}
                   onImageClick={(postId) => {
-                    const list = viewingPostsSource === 'saved' ? savedPosts : userPosts
+                    const list = viewingPostsSource === 'saved' ? savedPosts : viewerPosts
                     const idx = list.findIndex(p => p.id === postId)
                     if (idx !== -1) setSelectedPostIndex(idx)
                   }}

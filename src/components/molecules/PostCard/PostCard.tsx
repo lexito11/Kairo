@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, useEffect } from 'react'
+import Link from 'next/link'
 import { Avatar } from '@/components/atoms/Avatar'
 import Image from 'next/image'
 import { PostCardProps } from './types'
@@ -54,6 +55,9 @@ function PostCardComponent({
     () => author.name || author.username || 'Usuario',
     [author.name, author.username]
   )
+  const profileHref = author.id
+    ? `/profile?userId=${encodeURIComponent(author.id)}`
+    : null
 
   const handleLikeClick = () => {
     // Optimistic update
@@ -342,26 +346,51 @@ function PostCardComponent({
         </button>
       </div>
 
-      {/* Header */}
+      {/* Header — foto y nombre enlazan al perfil */}
       <div className="px-3 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="relative">
-            <Avatar src={author.image} alt={authorName} size="md" />
-            {author.isOnline && (
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-dark-card" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-gray-900 dark:text-white text-sm truncate">
-                {authorName}
-              </h3>
+        {profileHref ? (
+          <Link
+            href={profileHref}
+            className="flex items-center gap-3 flex-1 min-w-0 rounded-xl -mx-1 px-1 py-1 hover:bg-gray-100/90 dark:hover:bg-white/5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary-500/60"
+            aria-label={`Ver perfil de ${authorName}`}
+          >
+            <div className="relative shrink-0">
+              <Avatar src={author.image} alt={authorName} size="md" />
+              {author.isOnline && (
+                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-dark-card" />
+              )}
             </div>
-            <p className="text-xs text-gray-600 dark:text-gray-500">
-              {timeAgo} · 🌍 {privacy === 'public' ? 'Público' : privacy}
-            </p>
+            <div className="flex-1 min-w-0 text-left">
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-gray-900 dark:text-white text-sm truncate">
+                  {authorName}
+                </h3>
+              </div>
+              <p className="text-xs text-gray-600 dark:text-gray-500">
+                {timeAgo} · 🌍 {privacy === 'public' ? 'Público' : privacy}
+              </p>
+            </div>
+          </Link>
+        ) : (
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="relative shrink-0">
+              <Avatar src={author.image} alt={authorName} size="md" />
+              {author.isOnline && (
+                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-dark-card" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-gray-900 dark:text-white text-sm truncate">
+                  {authorName}
+                </h3>
+              </div>
+              <p className="text-xs text-gray-600 dark:text-gray-500">
+                {timeAgo} · 🌍 {privacy === 'public' ? 'Público' : privacy}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
         <button
           onClick={() => onMenuClick?.(id)}
           className="p-1 hover:bg-gray-100 dark:hover:bg-dark-surface rounded-full transition-colors"

@@ -27,6 +27,8 @@ export interface Post {
   likesCount?: number
   commentsCount?: number
   isLiked?: boolean
+  isAnonymous?: boolean
+  privacy?: 'public' | 'friends' | 'private' | 'anonymous'
   // Campos para sistema de intercesión (solo visual por ahora)
   postType?: 'prayer' | 'testimony' | 'post'
   intercessionsCount?: number

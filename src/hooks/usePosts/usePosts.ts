@@ -169,12 +169,27 @@ export function usePosts() {
     }
   }, [loading, hasMore, page, fetchPosts])
 
-  const createPost = async (content: string, file?: File) => {
+  const createPost = async (
+    content: string,
+    options?: {
+      files?: File[]
+      file?: File
+      isAnonymous?: boolean
+      postKind?: 'post' | 'testimony' | 'prayer'
+    }
+  ) => {
     try {
       const formData = new FormData()
       formData.append('content', content)
-      if (file) {
-        formData.append('file', file)
+      formData.append('isAnonymous', options?.isAnonymous ? 'true' : 'false')
+      formData.append('postKind', options?.postKind || 'post')
+      const files = options?.files?.length
+        ? options.files
+        : options?.file
+          ? [options.file]
+          : []
+      for (const f of files) {
+        formData.append('files', f)
       }
 
       const response = await fetch('/api/posts', {
@@ -182,10 +197,16 @@ export function usePosts() {
         body: formData,
       })
 
-      if (!response.ok) throw new Error('Error al crear post')
-      
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}))
+        throw new Error((errBody as { error?: string }).error || 'Error al crear post')
+      }
+
       const newPost = await response.json()
-      setPosts((prev) => [newPost, ...prev])
+      setPosts((prev) => {
+        if (newPost.isAnonymous) return prev
+        return [newPost, ...prev]
+      })
       return newPost
     } catch (err) {
       throw err

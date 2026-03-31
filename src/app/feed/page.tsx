@@ -153,23 +153,6 @@ export default function FeedPage() {
     setSelectedMediaIndex(null)
   }, [])
 
-  const handleCreateSeedVideos = useCallback(async () => {
-    try {
-      const response = await fetch('/api/posts/seed-vertical-videos', {
-        method: 'POST',
-      })
-      if (response.ok) {
-        alert('¡Tres posts con videos verticales creados exitosamente! Recarga la página para verlos.')
-        window.location.reload()
-      } else {
-        alert('Error al crear los posts de ejemplo')
-      }
-    } catch (error) {
-      console.error('Error:', error)
-      alert('Error al crear los posts de ejemplo')
-    }
-  }, [])
-
   return (
     <div className="min-h-screen bg-gray-200 dark:bg-dark-bg pb-24">
       <div className="max-w-md mx-auto">
@@ -185,9 +168,13 @@ export default function FeedPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleCreateSeedVideos}
+              type="button"
+              onClick={() =>
+                alert('Videos en vivo no disponibles hasta la proxima acttualizacio')
+              }
               className="w-10 h-10 flex items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 hover:scale-110 transition-all"
-              title="Crear 3 posts de ejemplo con videos verticales"
+              aria-label="Videos en vivo"
+              title="Videos en vivo"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path

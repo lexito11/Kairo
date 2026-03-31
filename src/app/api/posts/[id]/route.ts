@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { postSelect } from '../utils'
+import { postSelect, shapePostForClient } from '../utils'
 
 export async function GET(
   request: NextRequest,
@@ -45,14 +45,8 @@ export async function GET(
       )
     }
 
-    // Transformar post para incluir isLiked
-    const postWithLike = {
-      ...post,
-      isLiked: currentUserId ? ((post as any).likes && (post as any).likes.length > 0) : false,
-      likes: undefined, // Eliminar el array de likes del objeto
-    }
-
-    return NextResponse.json(postWithLike)
+    const shaped = shapePostForClient(post as any, currentUserId)
+    return NextResponse.json(shaped)
   } catch (error) {
     console.error('Error fetching post:', error)
     return NextResponse.json(

@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { PostsResponse } from './types'
+import { PostsResponse, PostResponse } from './types'
 
 /** Tamaño del pool de posts para rankear (estilo Instagram: mezcla siguiendo + afinidad + explorar) */
 const FEED_POOL_SIZE = 250
@@ -9,6 +9,8 @@ export const postSelect = {
   content: true,
   mediaUrl: true,
   mediaType: true,
+  isAnonymous: true,
+  postKind: true,
   createdAt: true,
   updatedAt: true,
   authorId: true,
@@ -46,6 +48,26 @@ function transformMediaUrls(mediaUrl: string | null): string[] | null {
   return [mediaUrl]
 }
 
+/** Formato unificado para el cliente (mediaUrls, postType, flags) */
+export function shapePostForClient(post: any, currentUserId: string | null): PostResponse {
+  const mediaUrls = transformMediaUrls(post.mediaUrl)
+  const likesArr = post.likes
+  const isLiked = currentUserId ? likesArr && likesArr.length > 0 : false
+  const { likes: _l, postKind: _pk, ...rest } = post
+  const postType = (post.postKind || 'post') as 'post' | 'testimony' | 'prayer'
+  const isAnon = post.isAnonymous ?? false
+  return {
+    ...rest,
+    postType,
+    privacy: (isAnon ? 'anonymous' : 'public') as 'public' | 'anonymous',
+    mediaUrls,
+    isLiked,
+    isAnonymous: isAnon,
+    likesCount: post._count?.likes ?? 0,
+    commentsCount: post._count?.comments ?? 0,
+  } as PostResponse
+}
+
 /** Detecta si un post tiene video según mediaType o mediaUrl */
 function postHasVideo(post: { mediaType?: string | null; mediaUrl?: string | null }): boolean {
   if (post.mediaType === 'video' && post.mediaUrl) return true
@@ -80,16 +102,24 @@ async function getPersonalizedFeedInternal(
     },
   } as const
 
-  const poolWhere = videoOnly
-    ? {
-        OR: [
-          { mediaType: 'video' },
-          { mediaUrl: { contains: 'video', mode: 'insensitive' as const } },
-          { mediaUrl: { contains: 'mp4', mode: 'insensitive' as const } },
-          { mediaUrl: { contains: 'gtv-videos-bucket', mode: 'insensitive' as const } },
-        ],
-      }
-    : undefined
+  const publicFeedOnly = { isAnonymous: false as const }
+  const poolWhere = (
+    videoOnly
+      ? {
+          AND: [
+            publicFeedOnly,
+            {
+              OR: [
+                { mediaType: 'video' },
+                { mediaUrl: { contains: 'video', mode: 'insensitive' as const } },
+                { mediaUrl: { contains: 'mp4', mode: 'insensitive' as const } },
+                { mediaUrl: { contains: 'gtv-videos-bucket', mode: 'insensitive' as const } },
+              ],
+            },
+          ],
+        }
+      : publicFeedOnly
+  ) as any
 
   const [followingRows, likedPostIds, commentedPostIds, postViewsWithPost, poolPosts] =
     await Promise.all([
@@ -186,18 +216,7 @@ async function getPersonalizedFeedInternal(
   const paginated = scored.slice(start, start + limit).map(({ post }) => post)
   const total = scored.length
 
-  const transformedPosts = paginated.map((post: any) => {
-    const { likes: _likes, ...rest } = post
-    const mediaUrls = transformMediaUrls(post.mediaUrl)
-    const isLiked = post.likes && post.likes.length > 0
-    return {
-      ...rest,
-      mediaUrls,
-      isLiked,
-      likesCount: post._count?.likes || 0,
-      commentsCount: post._count?.comments || 0,
-    }
-  })
+  const transformedPosts = paginated.map((post: any) => shapePostForClient(post, currentUserId))
 
   return {
     posts: transformedPosts,
@@ -245,6 +264,7 @@ export async function getPostsWithPagination(
       skip,
       take: limit,
       orderBy: { createdAt: 'desc' },
+      where: { isAnonymous: false } as any,
       select: currentUserId
         ? {
             ...postSelect,
@@ -259,24 +279,10 @@ export async function getPostsWithPagination(
           }
         : postSelect,
     }),
-    prisma.post.count(),
+    prisma.post.count({ where: { isAnonymous: false } as any }),
   ])
 
-  // Transformar posts para incluir mediaUrls y isLiked
-  const transformedPosts = posts.map((post: any) => {
-    const mediaUrls = transformMediaUrls(post.mediaUrl)
-    const isLiked = currentUserId
-      ? post.likes && post.likes.length > 0
-      : false
-
-    return {
-      ...post,
-      mediaUrls,
-      isLiked,
-      likesCount: post._count?.likes || 0,
-      commentsCount: post._count?.comments || 0,
-    }
-  })
+  const transformedPosts = posts.map((post: any) => shapePostForClient(post, currentUserId))
 
   return {
     posts: transformedPosts,
@@ -305,16 +311,38 @@ export async function getPostsByIds(
   })
   const orderMap = new Map(uniq.map((id, i) => [id, i]))
   posts.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0))
-  return posts.map((post: any) => {
-    const { likes: _likes, ...rest } = post
-    const mediaUrls = transformMediaUrls(post.mediaUrl)
-    const isLiked = currentUserId && post.likes && post.likes.length > 0
-    return {
-      ...rest,
-      mediaUrls,
-      isLiked,
-      likesCount: post._count?.likes || 0,
-      commentsCount: post._count?.comments || 0,
-    }
-  })
+  return posts.map((post: any) => shapePostForClient(post, currentUserId))
+}
+
+/** Posts del usuario actual (incluye anónimos) — para perfil / pestaña Anónimos */
+export async function getMyPostsIncludingAnonymous(
+  page: number,
+  limit: number,
+  userId: string
+): Promise<PostsResponse> {
+  const skip = (page - 1) * limit
+  const selectWithLikes = {
+    ...postSelect,
+    likes: { where: { authorId: userId }, select: { id: true } },
+  }
+  const [posts, total] = await Promise.all([
+    prisma.post.findMany({
+      where: { authorId: userId },
+      skip,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      select: selectWithLikes,
+    }),
+    prisma.post.count({ where: { authorId: userId } }),
+  ])
+  const transformedPosts = posts.map((post: any) => shapePostForClient(post, userId))
+  return {
+    posts: transformedPosts,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+    },
+  }
 }
