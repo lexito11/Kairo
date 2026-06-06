@@ -17,7 +17,12 @@ flutter run -d chrome --dart-define=SUPABASE_URL=https://TU_PROYECTO.supabase.co
 ## Supabase
 
 1. Crea un proyecto en [supabase.com](https://supabase.com)
-2. Ejecuta en SQL Editor (en orden):
+2. Ejecuta en SQL Editor **un solo archivo** (recomendado):
+
+   **`supabase/kairo_complete_schema.sql`**
+
+   O, si prefieres por partes (en orden):
+
    - `supabase/migrations/001_kairo_auth_and_schema.sql`
    - `supabase/migrations/002_rls_storage_grants.sql`
    - `supabase/migrations/003_events_intercessions_mood.sql`
