@@ -1,3 +1,0 @@
-export { EventsUpcomingSection } from './EventsUpcomingSection'
-
-

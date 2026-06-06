@@ -1,5 +1,0 @@
-export { FeelingsSelector } from './FeelingsSelector'
-
-
-
-

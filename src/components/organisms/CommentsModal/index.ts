@@ -1,7 +1,0 @@
-export { CommentsModal } from './CommentsModal'
-
-
-
-
-
-
