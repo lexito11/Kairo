@@ -106,6 +106,7 @@ class Post implements PostLike {
   }
 
   Post copyWith({
+    String? content,
     int? likesCount,
     int? commentsCount,
     bool? isLiked,
@@ -114,7 +115,7 @@ class Post implements PostLike {
   }) {
     return Post(
       id: id,
-      content: content,
+      content: content ?? this.content,
       createdAt: createdAt,
       author: author,
       mediaUrl: mediaUrl,

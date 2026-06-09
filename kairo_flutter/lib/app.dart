@@ -9,6 +9,7 @@ import 'features/auth/views/signin_view.dart';
 import 'features/auth/views/signup_view.dart';
 import 'features/chat/views/chat_thread_view.dart';
 import 'features/chat/views/chat_view.dart';
+import 'features/events/providers/events_provider.dart';
 import 'features/events/views/events_view.dart';
 import 'features/feed/views/create_post_view.dart';
 import 'features/feed/views/feed_view.dart';
@@ -41,7 +42,7 @@ class _KairoAppState extends State<KairoApp> {
         final loggedIn = AuthService().isSignedIn;
         final path = state.matchedLocation;
         final isAuth = path.startsWith('/auth');
-        final isPublic = path == '/' || path == '/feed' || path == '/videos' || path.startsWith('/profile');
+        final isPublic = path == '/' || path == '/feed' || path == '/videos' || path == '/events' || path.startsWith('/profile');
 
         if (path == '/feed/create' && !loggedIn) return '/auth/signin';
         if (path == '/notifications' && !loggedIn) return '/auth/signin';
@@ -94,6 +95,7 @@ class _KairoAppState extends State<KairoApp> {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => PostsProvider()),
+        ChangeNotifierProvider(create: (_) => EventsProvider()),
         ChangeNotifierProvider(create: (_) => SocialSummaryProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],

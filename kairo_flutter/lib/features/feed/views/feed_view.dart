@@ -9,6 +9,8 @@ import '../../posts/providers/posts_provider.dart';
 import '../../posts/widgets/comments_sheet.dart';
 import '../../posts/widgets/post_card.dart';
 import '../../posts/widgets/share_sheet.dart';
+import '../../events/widgets/events_today_section.dart';
+import '../../events/widgets/events_upcoming_section.dart';
 import '../../stories/widgets/stories_strip.dart';
 import '../../users/services/users_repository.dart';
 
@@ -83,51 +85,16 @@ class _FeedViewState extends State<FeedView> {
         child: CustomScrollView(
           controller: _scrollController,
           slivers: [
-            SliverAppBar(
-              floating: true,
-              backgroundColor: KairoColors.darkBg.withValues(alpha: 0.95),
-              title: Row(
+            SliverToBoxAdapter(child: _FeedHeader(summary: summary)),
+            SliverToBoxAdapter(
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('🙏', style: TextStyle(fontSize: 20)),
-                  const SizedBox(width: 6),
-                  ShaderMask(
-                    shaderCallback: (b) => KairoColors.brandTextGradient.createShader(b),
-                    child: const Text('KAIRO', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-                  ),
+                children: const [
+                  StoriesStrip(),
+                  SizedBox(height: 16),
                 ],
               ),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.live_tv_rounded, color: KairoColors.primary500),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Videos en vivo no disponibles hasta la proxima acttualizacio')),
-                    );
-                  },
-                ),
-                if (AuthService().isSignedIn)
-                  Stack(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.notifications_outlined, color: KairoColors.darkText),
-                        onPressed: () => context.push('/notifications'),
-                      ),
-                      if (summary.unreadCount > 0)
-                        Positioned(
-                          right: 10,
-                          top: 10,
-                          child: Container(
-                            width: 10,
-                            height: 10,
-                            decoration: const BoxDecoration(color: KairoColors.primary500, shape: BoxShape.circle),
-                          ),
-                        ),
-                    ],
-                  ),
-              ],
             ),
-            const SliverToBoxAdapter(child: StoriesStrip()),
             if (provider.loading && provider.posts.isEmpty)
               const SliverFillRemaining(
                 child: Center(child: CircularProgressIndicator(color: KairoColors.primary500)),
@@ -147,7 +114,7 @@ class _FeedViewState extends State<FeedView> {
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                padding: const EdgeInsets.only(top: 8, bottom: 80),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, i) {
@@ -158,12 +125,32 @@ class _FeedViewState extends State<FeedView> {
                         );
                       }
                       final post = provider.posts[i];
-                      return PostCard(
-                        post: post,
-                        onLike: () => provider.toggleLike(post.id),
-                        onComment: () => _openComments(post.id),
-                        onShare: () => _openShare(post.id, post.content),
-                        onIntercede: () => provider.toggleIntercede(post.id),
+                      final uid = AuthService().currentUser?.id;
+                      final isOwner = uid != null && post.author.id == uid;
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          PostCard(
+                            post: post,
+                            feedLayout: true,
+                            isOwner: isOwner,
+                            onLike: () => provider.toggleLike(post.id),
+                            onComment: () => _openComments(post.id),
+                            onShare: () => _openShare(post.id, post.content),
+                            onIntercede: () => provider.toggleIntercede(post.id),
+                            onEditContent: (content) => provider.updatePostContent(post.id, content),
+                            onDeleteText: () => provider.updatePostContent(post.id, ''),
+                            onDeletePost: () => provider.deletePost(post.id),
+                          ),
+                          if (i == 1) const EventsTodaySection(),
+                          if (i == 2) const EventsUpcomingSection(),
+                          Divider(
+                            height: 16,
+                            thickness: 8,
+                            color: Theme.of(context).scaffoldBackgroundColor,
+                          ),
+                        ],
                       );
                     },
                     childCount: provider.posts.length + (provider.loadingMore ? 1 : 0),
@@ -171,6 +158,83 @@ class _FeedViewState extends State<FeedView> {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FeedHeader extends StatelessWidget {
+  const _FeedHeader({required this.summary});
+
+  final SocialSummaryProvider summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
+
+    return ColoredBox(
+      color: KairoColors.darkBg,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(14, top + 2, 4, 2),
+        child: SizedBox(
+          height: 40,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Text('🙏', style: TextStyle(fontSize: 18, height: 1)),
+              const SizedBox(width: 5),
+              ShaderMask(
+                shaderCallback: (b) => KairoColors.brandTextGradient.createShader(b),
+                child: const Text(
+                  'KAIRO',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white, height: 1),
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                icon: const Icon(Icons.calendar_month_outlined, color: KairoColors.darkText, size: 22),
+                onPressed: () => context.push('/events'),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                icon: const Icon(Icons.live_tv_rounded, color: KairoColors.primary500, size: 22),
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Videos en vivo no disponibles hasta la proxima acttualizacio')),
+                  );
+                },
+              ),
+              if (AuthService().isSignedIn)
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                      icon: const Icon(Icons.notifications_outlined, color: KairoColors.darkText, size: 22),
+                      onPressed: () => context.push('/notifications'),
+                    ),
+                    if (summary.unreadCount > 0)
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(color: KairoColors.primary500, shape: BoxShape.circle),
+                        ),
+                      ),
+                  ],
+                ),
+            ],
+          ),
         ),
       ),
     );

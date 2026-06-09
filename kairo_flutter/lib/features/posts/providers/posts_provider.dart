@@ -126,4 +126,35 @@ class PostsProvider extends ChangeNotifier {
     _posts[idx] = post.copyWith(commentsCount: post.commentsCount + 1);
     notifyListeners();
   }
+
+  Future<void> updatePostContent(String postId, String content) async {
+    final idx = _posts.indexWhere((p) => p.id == postId);
+    if (idx == -1) return;
+    final previous = _posts[idx];
+    _posts[idx] = previous.copyWith(content: content);
+    notifyListeners();
+    try {
+      final updated = await _repo.updatePostContent(postId, content);
+      _posts[idx] = updated;
+      notifyListeners();
+    } catch (_) {
+      _posts[idx] = previous;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> deletePost(String postId) async {
+    final idx = _posts.indexWhere((p) => p.id == postId);
+    if (idx == -1) return;
+    final removed = _posts.removeAt(idx);
+    notifyListeners();
+    try {
+      await _repo.deletePost(postId);
+    } catch (_) {
+      _posts.insert(idx, removed);
+      notifyListeners();
+      rethrow;
+    }
+  }
 }

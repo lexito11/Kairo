@@ -100,6 +100,19 @@ class _ProfileViewState extends State<ProfileView> {
     }
   }
 
+  Future<void> _updatePostContent(String postId, String content) async {
+    await _postsRepo.updatePostContent(postId, content);
+    setState(() {
+      final idx = _posts.indexWhere((p) => p.id == postId);
+      if (idx != -1) _posts[idx] = _posts[idx].copyWith(content: content);
+    });
+  }
+
+  Future<void> _deletePost(String postId) async {
+    await _postsRepo.deletePost(postId);
+    setState(() => _posts.removeWhere((p) => p.id == postId));
+  }
+
   List<Post> get _displayPosts {
     switch (_tab) {
       case 'anonimos':
@@ -254,15 +267,22 @@ class _ProfileViewState extends State<ProfileView> {
                     )
                   : SliverList(
                       delegate: SliverChildBuilderDelegate(
-                        (context, i) => PostCard(
-                          post: _displayPosts[i],
-                          onComment: () => showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (_) => CommentsSheet(postId: _displayPosts[i].id),
-                          ),
-                        ),
+                        (context, i) {
+                          final post = _displayPosts[i];
+                          return PostCard(
+                            post: post,
+                            isOwner: _isOwner,
+                            onComment: () => showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (_) => CommentsSheet(postId: post.id),
+                            ),
+                            onEditContent: (content) => _updatePostContent(post.id, content),
+                            onDeleteText: () => _updatePostContent(post.id, ''),
+                            onDeletePost: () => _deletePost(post.id),
+                          );
+                        },
                         childCount: _displayPosts.length,
                       ),
                     ),

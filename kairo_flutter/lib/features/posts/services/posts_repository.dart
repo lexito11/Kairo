@@ -114,6 +114,28 @@ class PostsRepository {
     return _mapPost(row, uid);
   }
 
+  Future<Post> updatePostContent(String postId, String content) async {
+    final uid = _userId;
+    if (uid == null) throw Exception('Debes iniciar sesión');
+
+    final row = await _client
+        .from('posts')
+        .update({'content': content})
+        .eq('id', postId)
+        .eq('author_id', uid)
+        .select(_postSelect)
+        .single();
+
+    return _mapPost(row, uid);
+  }
+
+  Future<void> deletePost(String postId) async {
+    final uid = _userId;
+    if (uid == null) throw Exception('Debes iniciar sesión');
+
+    await _client.from('posts').delete().eq('id', postId).eq('author_id', uid);
+  }
+
   Future<bool> toggleLike(String postId) async {
     final uid = _userId;
     if (uid == null) return false;
