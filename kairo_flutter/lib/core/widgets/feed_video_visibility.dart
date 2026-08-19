@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
-/// Pausa/reproduce un video según si está completamente visible en el viewport.
+import 'feed_playback_focus_manager.dart';
+import 'feed_video_volume.dart';
+
+/// Reproduce/pausa un video del feed solo si ≥50 % visible en pantalla y la ruta está activa.
 class FeedVideoVisibility extends StatefulWidget {
   const FeedVideoVisibility({
     super.key,
@@ -9,29 +12,43 @@ class FeedVideoVisibility extends StatefulWidget {
     required this.child,
     this.enabled = true,
     this.bottomInset = 80,
+    this.minVisibleFraction = 0.5,
   });
 
   final VideoPlayerController controller;
   final Widget child;
   final bool enabled;
   final double bottomInset;
+  /// Fracción mínima del área del video que debe verse (0.5 = mitad o más).
+  final double minVisibleFraction;
 
   @override
   State<FeedVideoVisibility> createState() => FeedVideoVisibilityState();
 }
 
-class FeedVideoVisibilityState extends State<FeedVideoVisibility> {
+class FeedVideoVisibilityState extends State<FeedVideoVisibility> with WidgetsBindingObserver {
   final _key = GlobalKey();
   ScrollPosition? _scrollPosition;
-  bool _fullyVisible = false;
+  bool _meetsVisibilityThreshold = false;
   bool _enabled = true;
+  bool _appActive = true;
   bool _evaluateScheduled = false;
 
   @override
   void initState() {
     super.initState();
     _enabled = widget.enabled;
+    WidgetsBinding.instance.addObserver(this);
     _scheduleEvaluate();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final active = state == AppLifecycleState.resumed;
+    if (_appActive == active) return;
+    _appActive = active;
+    _applyPlayback();
+    if (active) _scheduleEvaluate();
   }
 
   @override
@@ -51,12 +68,17 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility> {
     super.didUpdateWidget(oldWidget);
     if (widget.enabled != oldWidget.enabled) {
       _enabled = widget.enabled;
-      _scheduleApplyPlayback();
+      if (_enabled) {
+        _scheduleEvaluate();
+      } else {
+        _applyPlayback();
+      }
     }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollPosition?.removeListener(_scheduleEvaluate);
     super.dispose();
   }
@@ -64,7 +86,9 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility> {
   void setVisibilityTrackingEnabled(bool enabled) {
     if (_enabled == enabled) return;
     _enabled = enabled;
-    _scheduleApplyPlayback();
+    if (enabled) {
+      _scheduleEvaluate();
+    }
   }
 
   void refreshVisibility() {
@@ -81,16 +105,14 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility> {
     });
   }
 
-  void _scheduleApplyPlayback() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _applyPlayback();
-    });
+  bool _isRouteCurrent() {
+    final route = ModalRoute.of(context);
+    return route?.isCurrent ?? true;
   }
 
-  bool _checkFullyVisible() {
+  double _visibleFraction() {
     final box = _key.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return false;
+    if (box == null || !box.hasSize) return 0;
 
     final offset = box.localToGlobal(Offset.zero);
     final rect = offset & box.size;
@@ -103,20 +125,15 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility> {
     );
 
     final intersection = rect.intersect(viewport);
-    if (intersection.isEmpty) return false;
+    if (intersection.isEmpty) return 0;
 
-    // Al menos ~40 % del área del video visible para considerar autoplay activo.
-    final visibleFraction = (intersection.width * intersection.height) / (rect.width * rect.height);
-    return visibleFraction >= 0.4;
+    return (intersection.width * intersection.height) / (rect.width * rect.height);
   }
 
   void _evaluate() {
     if (!mounted) return;
-    final visible = _checkFullyVisible();
-    if (visible != _fullyVisible) {
-      _fullyVisible = visible;
-      _applyPlayback();
-    }
+    _meetsVisibilityThreshold = _visibleFraction() >= widget.minVisibleFraction;
+    _applyPlayback();
   }
 
   void _applyPlayback() {
@@ -124,8 +141,22 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility> {
     final controller = widget.controller;
     if (!controller.value.isInitialized) return;
 
-    if (_enabled && _fullyVisible) {
-      controller.setVolume(1.0);
+    // Pantalla completa: no interferir con la reproducción en curso.
+    if (!_enabled) return;
+
+    final fraction = _visibleFraction();
+    _meetsVisibilityThreshold = fraction >= widget.minVisibleFraction;
+
+    final shouldPlay =
+        _appActive && _isRouteCurrent() && _meetsVisibilityThreshold;
+
+    FeedPlaybackFocusManager.instance.updateVisibility(
+      controller,
+      shouldPlay ? fraction : 0,
+    );
+
+    if (shouldPlay && FeedPlaybackFocusManager.instance.isFocused(controller)) {
+      FeedVideoVolume.instance.applyVolume(controller);
       if (!controller.value.isPlaying) {
         controller.play();
       }

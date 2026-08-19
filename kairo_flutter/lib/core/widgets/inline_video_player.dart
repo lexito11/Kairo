@@ -118,6 +118,13 @@ class InlineVideoPlayerState extends State<InlineVideoPlayer> {
     if (widget.muted != oldWidget.muted && _initialized && _controller.value.isInitialized) {
       _controller.setVolume(widget.muted ? 0.0 : 1.0);
     }
+    if (widget.autoPlay != oldWidget.autoPlay && _initialized && _controller.value.isInitialized) {
+      if (widget.autoPlay) {
+        _controller.play();
+      } else {
+        _controller.pause();
+      }
+    }
   }
 
   @override

@@ -4,9 +4,17 @@ import 'package:provider/provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../auth/services/auth_service.dart';
+import '../../events/services/churches_repository.dart';
 
-class SettingsView extends StatelessWidget {
+class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
+
+  @override
+  State<SettingsView> createState() => _SettingsViewState();
+}
+
+class _SettingsViewState extends State<SettingsView> {
+  late final Future<bool> _adminFuture = ChurchesRepository().isCurrentUserAdmin();
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +41,18 @@ class SettingsView extends StatelessWidget {
             leading: const Icon(Icons.event_outlined),
             title: const Text('Eventos'),
             onTap: () => context.push('/events'),
+          ),
+          FutureBuilder<bool>(
+            future: _adminFuture,
+            builder: (context, snapshot) {
+              if (snapshot.data != true) return const SizedBox.shrink();
+              return ListTile(
+                leading: const Icon(Icons.admin_panel_settings_outlined, color: KairoColors.primary400),
+                title: const Text('Solicitudes de iglesias'),
+                subtitle: const Text('Revisar y aprobar registros pendientes'),
+                onTap: () => context.push('/admin/churches'),
+              );
+            },
           ),
           ListTile(
             leading: const Icon(Icons.logout, color: KairoColors.errorText),

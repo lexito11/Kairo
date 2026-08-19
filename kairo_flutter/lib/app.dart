@@ -9,6 +9,8 @@ import 'features/auth/views/signin_view.dart';
 import 'features/auth/views/signup_view.dart';
 import 'features/chat/views/chat_thread_view.dart';
 import 'features/chat/views/chat_view.dart';
+import 'features/admin/views/church_requests_admin_view.dart';
+import 'features/events/providers/church_admin_provider.dart';
 import 'features/events/providers/events_provider.dart';
 import 'features/events/views/events_view.dart';
 import 'features/feed/views/create_post_view.dart';
@@ -47,6 +49,7 @@ class _KairoAppState extends State<KairoApp> {
         if (path == '/feed/create' && !loggedIn) return '/auth/signin';
         if (path == '/notifications' && !loggedIn) return '/auth/signin';
         if (path == '/settings' && !loggedIn) return '/auth/signin';
+        if (path == '/admin/churches' && !loggedIn) return '/auth/signin';
         if (path.startsWith('/chat/') && path != '/chat' && !loggedIn) return '/auth/signin';
         if (loggedIn && isAuth) return '/feed';
         if (!loggedIn && !isAuth && !isPublic) return '/auth/signin';
@@ -80,6 +83,7 @@ class _KairoAppState extends State<KairoApp> {
         GoRoute(path: '/notifications', builder: (_, __) => const NotificationsView()),
         GoRoute(path: '/settings', builder: (_, __) => const SettingsView()),
         GoRoute(path: '/events', builder: (_, __) => const EventsView()),
+        GoRoute(path: '/admin/churches', builder: (_, __) => const ChurchRequestsAdminView()),
       ],
     );
   }
@@ -96,6 +100,7 @@ class _KairoAppState extends State<KairoApp> {
       providers: [
         ChangeNotifierProvider(create: (_) => PostsProvider()),
         ChangeNotifierProvider(create: (_) => EventsProvider()),
+        ChangeNotifierProvider(create: (_) => ChurchAdminProvider()),
         ChangeNotifierProvider(create: (_) => SocialSummaryProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],

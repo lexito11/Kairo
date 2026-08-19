@@ -6,15 +6,22 @@ import '../../auth/services/auth_service.dart';
 import '../constants/events_constants.dart';
 import '../data/events_mock_data.dart';
 import '../models/event_data.dart';
+import '../models/estado_verificacion.dart';
+import '../services/churches_repository.dart';
 import '../services/events_prefs_service.dart';
 
 class EventsProvider extends ChangeNotifier {
-  EventsProvider({EventsPrefsService? prefs}) : _prefs = prefs ?? EventsPrefsService() {
+  EventsProvider({
+    EventsPrefsService? prefs,
+    ChurchesRepository? churchesRepository,
+  })  : _prefs = prefs ?? EventsPrefsService(),
+        _churchesRepository = churchesRepository ?? ChurchesRepository() {
     _initAttendance();
     _loadDenomination();
   }
 
   final EventsPrefsService _prefs;
+  final ChurchesRepository _churchesRepository;
   final List<EventData> allEvents = buildMockEvents();
   final Map<String, AttendanceInfo> attendanceCounts = {};
 
@@ -33,6 +40,11 @@ class EventsProvider extends ChangeNotifier {
   bool showLiveSectionInfo = false;
   bool showDenominationDropdown = false;
   ChurchFormData churchFormData = ChurchFormData.empty;
+  bool churchSubmitting = false;
+  String? churchSubmitError;
+  bool showChurchReviewNotice = false;
+  ChurchRecord? myChurch;
+  String? myChurchStatus;
 
   void _initAttendance() {
     final random = Random();
@@ -57,10 +69,26 @@ class EventsProvider extends ChangeNotifier {
       } else {
         showInitialSelector = true;
       }
+      await _refreshMyChurch();
     }
 
     isLoading = false;
     notifyListeners();
+  }
+
+  Future<void> _refreshMyChurch() async {
+    try {
+      myChurch = await _churchesRepository.getMyChurch();
+      myChurchStatus = myChurch != null
+          ? EstadoVerificacion.normalize(myChurch!.estadoVerificacion)
+          : EstadoVerificacion.normalize(await _prefs.getChurchStatus());
+      if (myChurch != null) {
+        await _prefs.setRegisteredChurch(true);
+        await _prefs.setChurchStatus(myChurchStatus);
+      }
+    } catch (_) {
+      myChurchStatus ??= EstadoVerificacion.normalize(await _prefs.getChurchStatus());
+    }
   }
 
   String get displayDenomination =>
@@ -215,8 +243,23 @@ class EventsProvider extends ChangeNotifier {
   }
 
   Future<void> onCreateEventTap() async {
-    final registered = await _prefs.hasRegisteredChurch();
-    showChurchRegistration = !registered;
+    await _refreshMyChurch();
+
+    if (myChurch != null) {
+      if (myChurch!.isPending || myChurch!.isRejected) {
+        showChurchRegistration = false;
+        showChurchReviewNotice = true;
+      } else {
+        showChurchRegistration = false;
+        showChurchReviewNotice = false;
+      }
+      notifyListeners();
+      return;
+    }
+
+    final registeredLocally = await _prefs.hasRegisteredChurch();
+    showChurchRegistration = !registeredLocally;
+    showChurchReviewNotice = false;
     notifyListeners();
   }
 
@@ -227,13 +270,48 @@ class EventsProvider extends ChangeNotifier {
 
   void updateChurchForm(ChurchFormData data) {
     churchFormData = data;
+    churchSubmitError = null;
     notifyListeners();
   }
 
   Future<void> submitChurchRegistration() async {
-    await _prefs.setRegisteredChurch(true);
-    showChurchRegistration = false;
-    churchFormData = ChurchFormData.empty;
+    final form = churchFormData;
+    final validationError = form.validationError();
+    if (validationError != null) {
+      churchSubmitError = validationError;
+      notifyListeners();
+      return;
+    }
+
+    churchSubmitting = true;
+    churchSubmitError = null;
+    showChurchReviewNotice = false;
+    notifyListeners();
+
+    try {
+      final church = await _churchesRepository.registerChurch(form);
+      myChurch = church;
+      myChurchStatus = EstadoVerificacion.pendiente;
+      await _prefs.setRegisteredChurch(true);
+      await _prefs.setChurchStatus(EstadoVerificacion.pendiente);
+      showChurchRegistration = false;
+      churchFormData = ChurchFormData.empty;
+      showChurchReviewNotice = true;
+    } catch (e) {
+      churchSubmitError = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      churchSubmitting = false;
+      notifyListeners();
+    }
+  }
+
+  void clearChurchReviewNotice() {
+    showChurchReviewNotice = false;
+    notifyListeners();
+  }
+
+  void clearChurchSubmitMessage() {
+    churchSubmitError = null;
     notifyListeners();
   }
 

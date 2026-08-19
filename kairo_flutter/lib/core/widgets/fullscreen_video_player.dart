@@ -10,10 +10,13 @@ class FullscreenVideoPlayer extends StatefulWidget {
     super.key,
     required this.controller,
     this.onClose,
+    this.showVideoLayer = true,
   });
 
   final VideoPlayerController controller;
   final VoidCallback? onClose;
+  /// Si es false, solo muestra controles (el video vive en un Hero externo).
+  final bool showVideoLayer;
 
   @override
   State<FullscreenVideoPlayer> createState() => _FullscreenVideoPlayerState();
@@ -29,10 +32,6 @@ class _FullscreenVideoPlayerState extends State<FullscreenVideoPlayer> {
   void initState() {
     super.initState();
     _c.addListener(_onVideoUpdate);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_c.value.isInitialized) return;
-      if (!_c.value.isPlaying) _c.play();
-    });
   }
 
   @override
@@ -67,17 +66,6 @@ class _FullscreenVideoPlayerState extends State<FullscreenVideoPlayer> {
     _flashCenterIcon();
   }
 
-  Future<void> _seekRelative(int seconds) async {
-    if (!mounted || !_c.value.isInitialized) return;
-    final position = _c.value.position;
-    final duration = _c.value.duration;
-    var target = position + Duration(seconds: seconds);
-    if (target < Duration.zero) target = Duration.zero;
-    if (target > duration) target = duration;
-    await _c.seekTo(target);
-    _flashCenterIcon();
-  }
-
   String _format(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
@@ -94,6 +82,61 @@ class _FullscreenVideoPlayerState extends State<FullscreenVideoPlayer> {
     final size = _c.value.size;
     final isPlaying = _c.value.isPlaying;
 
+    final progressBar = Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [Colors.black.withValues(alpha: 0.85), Colors.transparent],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              VideoProgressIndicator(
+                _c,
+                allowScrubbing: true,
+                colors: const VideoProgressColors(
+                  playedColor: KairoColors.primary500,
+                  bufferedColor: Colors.white24,
+                  backgroundColor: Colors.white12,
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _format(_c.value.position),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  Text(
+                    _format(_c.value.duration),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (!widget.showVideoLayer) {
+      return IgnorePointer(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [progressBar],
+        ),
+      );
+    }
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _togglePlay,
@@ -104,12 +147,15 @@ class _FullscreenVideoPlayerState extends State<FullscreenVideoPlayer> {
           ColoredBox(
             color: Colors.black,
             child: Center(
-              child: FittedBox(
-                fit: BoxFit.contain,
-                child: SizedBox(
-                  width: size.width,
-                  height: size.height,
-                  child: VideoPlayer(_c),
+              child: IgnorePointer(
+                child: FittedBox(
+                  fit: BoxFit.contain,
+                  alignment: Alignment.topCenter,
+                  child: SizedBox(
+                    width: size.width,
+                    height: size.height,
+                    child: VideoPlayer(_c),
+                  ),
                 ),
               ),
             ),
@@ -126,69 +172,7 @@ class _FullscreenVideoPlayerState extends State<FullscreenVideoPlayer> {
                 ),
               ),
             ),
-          Positioned(
-            left: 24,
-            child: IconButton(
-              iconSize: 40,
-              color: Colors.white,
-              onPressed: () => _seekRelative(-10),
-              icon: const Icon(Icons.replay_10),
-            ),
-          ),
-          Positioned(
-            right: 24,
-            child: IconButton(
-              iconSize: 40,
-              color: Colors.white,
-              onPressed: () => _seekRelative(10),
-              icon: const Icon(Icons.forward_10),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.bottomCenter,
-                  end: Alignment.topCenter,
-                  colors: [Colors.black.withValues(alpha: 0.85), Colors.transparent],
-                ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    VideoProgressIndicator(
-                      _c,
-                      allowScrubbing: true,
-                      colors: const VideoProgressColors(
-                        playedColor: KairoColors.primary500,
-                        bufferedColor: Colors.white24,
-                        backgroundColor: Colors.white12,
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _format(_c.value.position),
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                        Text(
-                          _format(_c.value.duration),
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+          progressBar,
         ],
       ),
     );

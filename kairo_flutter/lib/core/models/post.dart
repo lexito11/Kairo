@@ -65,6 +65,12 @@ class Post implements PostLike {
   bool get isPrayer => postKind == PostKind.prayer;
   bool get isTestimony => postKind == PostKind.testimony;
 
+  /// Un único archivo y es video → permite expansión a pantalla completa en el feed.
+  bool get isSoloVideo {
+    final list = mediaItems;
+    return list.length == 1 && list.first.isVideo;
+  }
+
   static List<String>? _parseMediaUrls(String? mediaUrl) {
     if (mediaUrl == null || mediaUrl.isEmpty) return null;
     try {

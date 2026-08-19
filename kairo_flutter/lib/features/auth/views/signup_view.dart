@@ -54,13 +54,20 @@ class _SignUpViewState extends State<SignUpView> {
     });
 
     try {
-      await _auth.signUpWithPassword(
+      final response = await _auth.signUpWithPassword(
         email: _email.text,
         password: _password.text,
         name: _name.text,
         username: _username.text.isEmpty ? null : _username.text,
       );
       if (!mounted) return;
+      if (response.session == null) {
+        setState(() {
+          _error =
+              'Cuenta creada. Revisa tu email para confirmarla antes de iniciar sesión.';
+        });
+        return;
+      }
       context.go('/auth/signin?registered=true');
     } catch (e) {
       setState(() => _error = AuthService.mapAuthError(e));

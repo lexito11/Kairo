@@ -12,12 +12,14 @@ class StorageService {
     required Uint8List bytes,
     required String fileName,
     required String mimeType,
+    String subfolder = '',
   }) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) throw Exception('Debes iniciar sesión para subir archivos');
 
     final ext = fileName.contains('.') ? fileName.split('.').last : 'bin';
-    final path = '$userId/${const Uuid().v4()}.$ext';
+    final basePath = subfolder.isEmpty ? userId : '$subfolder/$userId';
+    final path = '$basePath/${const Uuid().v4()}.$ext';
 
     await _client.storage.from(_bucket).uploadBinary(
           path,

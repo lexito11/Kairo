@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/social_summary_provider.dart';
 import '../../../core/theme/kairo_colors.dart';
+import '../../../core/widgets/feed_playback_focus_manager.dart';
 import '../../../core/widgets/main_scaffold.dart';
 import '../../../features/auth/services/auth_service.dart';
 import '../../posts/providers/posts_provider.dart';
@@ -21,12 +22,13 @@ class FeedView extends StatefulWidget {
   State<FeedView> createState() => _FeedViewState();
 }
 
-class _FeedViewState extends State<FeedView> {
+class _FeedViewState extends State<FeedView> with WidgetsBindingObserver {
   final _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await context.read<PostsProvider>().loadFeed(refresh: true, videoOnly: false);
       if (!mounted || !AuthService().isSignedIn) return;
@@ -48,7 +50,16 @@ class _FeedViewState extends State<FeedView> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      FeedPlaybackFocusManager.instance.pauseAll();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    FeedPlaybackFocusManager.instance.pauseAll();
     _scrollController.dispose();
     super.dispose();
   }
@@ -78,6 +89,9 @@ class _FeedViewState extends State<FeedView> {
     final provider = context.watch<PostsProvider>();
     final summary = context.watch<SocialSummaryProvider>();
 
+    final topInset = MediaQuery.paddingOf(context).top;
+    final headerHeight = topInset + 44;
+
     return MainScaffold(
       child: RefreshIndicator(
         color: KairoColors.primary500,
@@ -85,7 +99,10 @@ class _FeedViewState extends State<FeedView> {
         child: CustomScrollView(
           controller: _scrollController,
           slivers: [
-            SliverToBoxAdapter(child: _FeedHeader(summary: summary)),
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _FeedHeaderDelegate(summary: summary, height: headerHeight),
+            ),
             SliverToBoxAdapter(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -143,8 +160,8 @@ class _FeedViewState extends State<FeedView> {
                             onDeleteText: () => provider.updatePostContent(post.id, ''),
                             onDeletePost: () => provider.deletePost(post.id),
                           ),
-                          if (i == 1) const EventsTodaySection(),
-                          if (i == 2) const EventsUpcomingSection(),
+                          if (i == 1) const EventsTodaySection(inFeed: true),
+                          if (i == 2) const EventsUpcomingSection(inFeed: true),
                           Divider(
                             height: 16,
                             thickness: 8,
@@ -164,6 +181,33 @@ class _FeedViewState extends State<FeedView> {
   }
 }
 
+class _FeedHeaderDelegate extends SliverPersistentHeaderDelegate {
+  _FeedHeaderDelegate({required this.summary, required this.height});
+
+  final SocialSummaryProvider summary;
+  final double height;
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Material(
+      color: KairoColors.darkBg,
+      elevation: overlapsContent ? 1 : 0,
+      shadowColor: Colors.black54,
+      child: _FeedHeader(summary: summary),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _FeedHeaderDelegate old) =>
+      old.height != height || old.summary.unreadCount != summary.unreadCount;
+}
+
 class _FeedHeader extends StatelessWidget {
   const _FeedHeader({required this.summary});
 
@@ -173,13 +217,11 @@ class _FeedHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final top = MediaQuery.paddingOf(context).top;
 
-    return ColoredBox(
-      color: KairoColors.darkBg,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(14, top + 2, 4, 2),
-        child: SizedBox(
-          height: 40,
-          child: Row(
+    return Padding(
+      padding: EdgeInsets.fromLTRB(14, top + 2, 4, 2),
+      child: SizedBox(
+        height: 40,
+        child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const Text('🙏', style: TextStyle(fontSize: 18, height: 1)),
@@ -210,6 +252,17 @@ class _FeedHeader extends StatelessWidget {
                   );
                 },
               ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                icon: const Icon(Icons.person_add, color: KairoColors.darkText, size: 22),
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Agregar amigos estará disponible pronto')),
+                  );
+                },
+              ),
               if (AuthService().isSignedIn)
                 Stack(
                   clipBehavior: Clip.none,
@@ -236,7 +289,6 @@ class _FeedHeader extends StatelessWidget {
             ],
           ),
         ),
-      ),
     );
   }
 }

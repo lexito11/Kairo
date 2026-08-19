@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/kairo_colors.dart';
+import '../models/estado_verificacion.dart';
 import '../models/event_data.dart';
 import '../providers/events_provider.dart';
 
@@ -135,7 +136,6 @@ class _DenominationRow extends StatelessWidget {
                 ),
               ),
             ),
-            if (provider.showDenominationDropdown) _DenominationDropdown(provider: provider),
           ],
         ),
         const SizedBox(width: 12),
@@ -147,89 +147,6 @@ class _DenominationRow extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _DenominationDropdown extends StatelessWidget {
-  const _DenominationDropdown({required this.provider});
-
-  final EventsProvider provider;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      top: 44,
-      left: 0,
-      child: Material(
-        elevation: 8,
-        borderRadius: BorderRadius.circular(12),
-        color: KairoColors.darkCard,
-        child: Container(
-          width: 256,
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: KairoColors.darkBorder),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Text('TU DENOMINACIÓN', style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 1)),
-              ),
-              if (provider.selectedDenomination != null)
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: KairoColors.primary500.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(width: 8, height: 8, decoration: const BoxDecoration(color: KairoColors.primary500, shape: BoxShape.circle)),
-                      const SizedBox(width: 12),
-                      Expanded(child: Text(provider.displayDenomination, style: const TextStyle(color: KairoColors.primary400, fontWeight: FontWeight.w500))),
-                      const Icon(Icons.check, size: 16, color: KairoColors.primary400),
-                    ],
-                  ),
-                ),
-              Container(
-                margin: const EdgeInsets.all(8),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAB308).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFEAB308).withValues(alpha: 0.3)),
-                ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('⚠️ No se puede cambiar', style: TextStyle(color: Color(0xFFFBBF24), fontSize: 11, fontWeight: FontWeight.w600)),
-                    SizedBox(height: 4),
-                    Text(
-                      'Tu denominación no se puede cambiar directamente. Si necesitas cambiarla, debes hacer una petición válida.',
-                      style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1, color: KairoColors.darkBorder),
-              TextButton(
-                onPressed: () {
-                  provider.setShowDenominationDropdown(false);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Para cambiar tu denominación, contacta al soporte explicando el motivo del cambio.')),
-                  );
-                },
-                child: const Text('Solicitar cambio de denominación', style: TextStyle(color: KairoColors.primary400, fontSize: 13)),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -323,6 +240,16 @@ class _ActionsRowState extends State<_ActionsRow> {
           ),
         ),
         const SizedBox(width: 8),
+        if (provider.myChurchStatus == EstadoVerificacion.pendiente)
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAB308).withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Text('Pendiente', style: TextStyle(color: Color(0xFFFBBF24), fontSize: 11, fontWeight: FontWeight.w600)),
+          ),
         ElevatedButton.icon(
           onPressed: provider.onCreateEventTap,
           icon: const Icon(Icons.add, size: 16),

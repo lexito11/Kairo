@@ -1,11 +1,14 @@
 bool isVideoUrl(String url, {String? mediaType}) {
+  if (mediaType == 'image' || mediaType == 'photo') return false;
+  final path = url.toLowerCase().split('?').first;
+  final hasVideoExtension = path.endsWith('.mp4') ||
+      path.endsWith('.webm') ||
+      path.endsWith('.mov') ||
+      path.endsWith('.m4v') ||
+      path.contains('gtv-videos-bucket');
+  if (hasVideoExtension) return true;
   if (mediaType == 'video') return true;
-  final lower = url.toLowerCase();
-  return lower.contains('.mp4') ||
-      lower.contains('.webm') ||
-      lower.contains('.mov') ||
-      lower.contains('video') ||
-      lower.contains('gtv-videos-bucket');
+  return false;
 }
 
 bool postHasVideo(PostLike post) {

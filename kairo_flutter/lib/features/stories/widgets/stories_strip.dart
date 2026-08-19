@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
 import '../../../core/models/story.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../features/auth/services/auth_service.dart';
@@ -8,7 +9,7 @@ import '../services/stories_repository.dart';
 import 'story_viewer.dart';
 
 /// Tarjetas verticales compactas estilo Facebook Stories.
-const _kStoryWidth = 54.0;
+const _kStoryWidth = 68.0;
 const _kStoryHeight = 84.0;
 const _kStoryRadius = 10.0;
 const _kStripHeight = 96.0;
@@ -61,6 +62,15 @@ class _StoriesStripState extends State<StoriesStrip> {
     );
   }
 
+  String? get _myProfileImage {
+    final uid = AuthService().currentUser?.id;
+    if (uid == null) return null;
+    for (final g in _groups) {
+      if (g.author.id == uid) return g.author.image;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -78,23 +88,25 @@ class _StoriesStripState extends State<StoriesStrip> {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           children: [
-          if (AuthService().isSignedIn)
-            _StoryCard(
-              label: 'Tu historia',
-              isAdd: true,
-              onTap: _addStory,
-            ),
-          ..._groups.map((g) {
-            final isMine = g.author.id == AuthService().currentUser?.id;
-            return _StoryCard(
-              label: isMine ? 'Tu historia' : g.author.displayName,
-              imageUrl: g.author.image,
-              name: g.author.displayName,
-              hasGradient: !isMine,
-              onTap: () => _openGroup(g, 0),
-            );
-          }),
-        ],
+            if (AuthService().isSignedIn)
+              _StoryCard(
+                label: 'Tu historia',
+                isAdd: true,
+                profileImageUrl: _myProfileImage,
+                onTap: _addStory,
+              ),
+            ..._groups.map((g) {
+              final isMine = g.author.id == AuthService().currentUser?.id;
+              final previewStory = g.stories.isNotEmpty ? g.stories.last : null;
+              return _StoryCard(
+                label: isMine ? 'Tu historia' : g.author.displayName,
+                profileImageUrl: g.author.image,
+                previewStory: previewStory,
+                hasGradient: !isMine,
+                onTap: () => _openGroup(g, 0),
+              );
+            }),
+          ],
         ),
       ),
     );
@@ -106,16 +118,16 @@ class _StoryCard extends StatelessWidget {
     required this.label,
     this.isAdd = false,
     this.hasGradient = false,
-    this.imageUrl,
-    this.name,
+    this.profileImageUrl,
+    this.previewStory,
     this.onTap,
   });
 
   final String label;
   final bool isAdd;
   final bool hasGradient;
-  final String? imageUrl;
-  final String? name;
+  final String? profileImageUrl;
+  final Story? previewStory;
   final VoidCallback? onTap;
 
   @override
@@ -137,15 +149,15 @@ class _StoryCard extends StatelessWidget {
                   child: _StoryCardBody(
                     label: label,
                     isAdd: isAdd,
-                    imageUrl: imageUrl,
-                    name: name,
+                    profileImageUrl: profileImageUrl,
+                    previewStory: previewStory,
                   ),
                 )
               : _StoryCardBody(
                   label: label,
                   isAdd: isAdd,
-                  imageUrl: imageUrl,
-                  name: name,
+                  profileImageUrl: profileImageUrl,
+                  previewStory: previewStory,
                 ),
         ),
       ),
@@ -157,14 +169,14 @@ class _StoryCardBody extends StatelessWidget {
   const _StoryCardBody({
     required this.label,
     required this.isAdd,
-    this.imageUrl,
-    this.name,
+    this.profileImageUrl,
+    this.previewStory,
   });
 
   final String label;
   final bool isAdd;
-  final String? imageUrl;
-  final String? name;
+  final String? profileImageUrl;
+  final Story? previewStory;
 
   @override
   Widget build(BuildContext context) {
@@ -173,24 +185,11 @@ class _StoryCardBody extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (isAdd)
-            Container(
-              color: KairoColors.darkCard,
-              child: const Center(
-                child: Icon(Icons.add, color: KairoColors.primary500, size: 22),
-              ),
-            )
-          else if (imageUrl != null)
-            CachedNetworkImage(imageUrl: imageUrl!, fit: BoxFit.cover)
-          else
-            Container(
-              color: KairoColors.darkHover,
-              alignment: Alignment.center,
-              child: Text(
-                (name?.isNotEmpty == true) ? name![0].toUpperCase() : '?',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
-              ),
-            ),
+          _StoryCardMedia(
+            isAdd: isAdd,
+            profileImageUrl: profileImageUrl,
+            previewStory: previewStory,
+          ),
           Positioned(
             left: 0,
             right: 0,
@@ -231,6 +230,108 @@ class _StoryCardBody extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _StoryCardMedia extends StatelessWidget {
+  const _StoryCardMedia({
+    required this.isAdd,
+    this.profileImageUrl,
+    this.previewStory,
+  });
+
+  final bool isAdd;
+  final String? profileImageUrl;
+  final Story? previewStory;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isAdd) {
+      if (profileImageUrl != null) {
+        return CachedNetworkImage(imageUrl: profileImageUrl!, fit: BoxFit.cover);
+      }
+      return ColoredBox(
+        color: KairoColors.darkCard,
+        child: Center(child: Icon(Icons.add, color: KairoColors.primary500.withValues(alpha: 0.9), size: 22)),
+      );
+    }
+
+    final story = previewStory;
+    if (story != null && story.isVideo) {
+      return _StoryCardVideo(url: story.mediaUrl);
+    }
+    if (story != null && !story.isVideo) {
+      return CachedNetworkImage(imageUrl: story.mediaUrl, fit: BoxFit.cover);
+    }
+    if (profileImageUrl != null) {
+      return CachedNetworkImage(imageUrl: profileImageUrl!, fit: BoxFit.cover);
+    }
+
+    return const ColoredBox(color: KairoColors.darkHover);
+  }
+}
+
+/// Reproductor aislado para la vista previa de historias (no usa la lógica del feed).
+class _StoryCardVideo extends StatefulWidget {
+  const _StoryCardVideo({required this.url});
+
+  final String url;
+
+  @override
+  State<_StoryCardVideo> createState() => _StoryCardVideoState();
+}
+
+class _StoryCardVideoState extends State<_StoryCardVideo> {
+  late final VideoPlayerController _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+      ..initialize().then((_) {
+        if (!mounted) return;
+        _controller
+          ..setVolume(0)
+          ..setLooping(true)
+          ..play();
+        setState(() => _ready = true);
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready) {
+      return profileFallback();
+    }
+    return FittedBox(
+      fit: BoxFit.cover,
+      clipBehavior: Clip.hardEdge,
+      child: SizedBox(
+        width: _controller.value.size.width,
+        height: _controller.value.size.height,
+        child: VideoPlayer(_controller),
+      ),
+    );
+  }
+
+  Widget profileFallback() {
+    return const ColoredBox(
+      color: KairoColors.darkHover,
+      child: Center(
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2, color: KairoColors.primary500),
+        ),
       ),
     );
   }

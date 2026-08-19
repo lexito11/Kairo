@@ -7,7 +7,9 @@ import '../../../core/theme/kairo_colors.dart';
 import '../../../core/utils/format_time_ago.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../core/utils/responsive.dart';
+import '../../../core/widgets/feed_playback_focus_manager.dart';
 import '../../../core/widgets/feed_video_visibility.dart';
+import '../../../core/widgets/feed_video_volume.dart';
 import '../../../core/widgets/fullscreen_video_player.dart';
 import '../../../core/widgets/inline_video_player.dart';
 import '../../../core/widgets/kairo_avatar.dart';
@@ -205,15 +207,23 @@ class _PostCardState extends State<PostCard> {
                       borderRadius: (post.isPrayer || post.isTestimony)
                           ? BorderRadius.zero
                           : const BorderRadius.vertical(top: Radius.circular(_kCardRadius)),
-                      child: _PostMedia(items: media, feed: true),
+                      child: _PostMedia(
+                        items: media,
+                        feed: true,
+                        postId: post.id,
+                        post: post,
+                        isOwner: widget.isOwner,
+                        onMenuSelected: _onMenuSelected,
+                        onLike: widget.onLike,
+                      ),
                     )
                   : _FeedMediaBlock(
                       items: media,
+                      postId: post.id,
                       post: post,
+                      isOwner: widget.isOwner,
+                      onMenuSelected: _onMenuSelected,
                       onLike: widget.onLike,
-                      onComment: widget.onComment,
-                      onShare: widget.onShare,
-                      onIntercede: widget.onIntercede,
                     ),
             _PostInfoPanel(
               post: post,
@@ -265,31 +275,174 @@ class _PostCardState extends State<PostCard> {
   }
 }
 
-// ─── Feed: media recortada (altura fija) + tap → pantalla completa ──────────
+// ─── Feed: recorte uniforme 4:5 → detalle con ratio real + Hero ───────────
 
-const _kFeedMediaMaxHeight = 550.0;
+/// Ratio fijo del feed (estilo Instagram): tarjetas uniformes con recorte leve.
+const _kFeedDisplayAspectRatio = 4 / 5;
+
+String _feedMediaHeroTag(String postId) => 'feed_media_$postId';
+
+/// Calcula el tamaño del detalle respetando el aspect ratio real del archivo.
+Size _detailMediaSize(double mediaAspectRatio, Size screen) {
+  var width = screen.width;
+  var height = width / mediaAspectRatio;
+  if (height > screen.height) {
+    height = screen.height;
+    width = height * mediaAspectRatio;
+  }
+  return Size(width, height);
+}
 
 Future<void> _openFeedMediaFullscreen(
-  BuildContext context,
-  MediaItem item, {
+  BuildContext context, {
+  required String heroTag,
+  required MediaItem item,
+  required double mediaAspectRatio,
   VideoPlayerController? videoController,
 }) {
   return Navigator.of(context).push<void>(
-    MaterialPageRoute<void>(
-      fullscreenDialog: true,
-      builder: (_) => _FeedMediaFullscreenPage(
-        item: item,
-        videoController: videoController,
-      ),
+    PageRouteBuilder<void>(
+      opaque: false,
+      transitionDuration: const Duration(milliseconds: 300),
+      reverseTransitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return FadeTransition(
+          opacity: animation,
+          child: _FeedMediaFullscreenPage(
+            heroTag: heroTag,
+            item: item,
+            mediaAspectRatio: mediaAspectRatio,
+            videoController: videoController,
+          ),
+        );
+      },
     ),
   );
 }
 
-class _FeedCroppedMedia extends StatefulWidget {
-  const _FeedCroppedMedia({required this.item, required this.width});
+/// Superficie compartida feed (cover) ↔ detalle (contain) para Hero unificado.
+class _HeroMediaSurface extends StatelessWidget {
+  const _HeroMediaSurface({
+    required this.item,
+    required this.fit,
+    this.controller,
+  });
 
   final MediaItem item;
-  final double width;
+  final BoxFit fit;
+  final VideoPlayerController? controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (item.isVideo) {
+      final c = controller;
+      if (c == null || !c.value.isInitialized) {
+        return const ColoredBox(
+          color: Colors.black,
+          child: Center(child: CircularProgressIndicator(color: KairoColors.primary500)),
+        );
+      }
+      final size = c.value.size;
+      return ColoredBox(
+        color: Colors.black,
+        child: SizedBox.expand(
+          child: FittedBox(
+            fit: fit,
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              width: size.width,
+              height: size.height,
+              child: IgnorePointer(
+                child: VideoPlayer(c),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return ColoredBox(
+      color: Colors.black,
+      child: SizedBox.expand(
+        child: CachedNetworkImage(
+          imageUrl: item.url,
+          fit: fit,
+          alignment: Alignment.topCenter,
+        ),
+      ),
+    );
+  }
+}
+
+Widget _buildFeedHero({
+  required String heroTag,
+  required Widget child,
+}) {
+  return Hero(
+    tag: heroTag,
+    createRectTween: (begin, end) => MaterialRectArcTween(begin: begin, end: end),
+    flightShuttleBuilder: (
+      flightContext,
+      animation,
+      flightDirection,
+      fromHeroContext,
+      toHeroContext,
+    ) {
+      final Hero toHero = toHeroContext.widget as Hero;
+      return Material(
+        color: Colors.black,
+        child: toHero.child,
+      );
+    },
+    child: Material(
+      type: MaterialType.transparency,
+      child: child,
+    ),
+  );
+}
+
+class _FeedMuteButton extends StatelessWidget {
+  const _FeedMuteButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: FeedVideoVolume.instance,
+      builder: (context, _) {
+        final muted = FeedVideoVolume.instance.isMuted;
+        return Material(
+          color: Colors.black45,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: FeedVideoVolume.instance.toggle,
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Icon(
+                muted ? Icons.volume_off : Icons.volume_up,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _FeedCroppedMedia extends StatefulWidget {
+  const _FeedCroppedMedia({
+    required this.item,
+    required this.postId,
+    required this.isSoloVideo,
+    this.onLike,
+  });
+
+  final MediaItem item;
+  final String postId;
+  final bool isSoloVideo;
+  final VoidCallback? onLike;
 
   @override
   State<_FeedCroppedMedia> createState() => _FeedCroppedMediaState();
@@ -298,24 +451,50 @@ class _FeedCroppedMedia extends StatefulWidget {
 class _FeedCroppedMediaState extends State<_FeedCroppedMedia> {
   VideoPlayerController? _controller;
   bool _videoReady = false;
+  /// Aspect ratio real del archivo (solo para pantalla de detalle).
+  double _mediaAspectRatio = _kFeedDisplayAspectRatio;
   final GlobalKey<FeedVideoVisibilityState> _visibilityKey = GlobalKey();
+
+  String get _heroTag => _feedMediaHeroTag(widget.postId);
 
   @override
   void initState() {
     super.initState();
     if (widget.item.isVideo) {
       _initFeedVideo();
+    } else {
+      _resolveImageAspectRatio();
     }
+  }
+
+  void _resolveImageAspectRatio() {
+    final provider = CachedNetworkImageProvider(widget.item.url);
+    final stream = provider.resolve(const ImageConfiguration());
+    ImageStreamListener? listener;
+    listener = ImageStreamListener((info, _) {
+      final w = info.image.width.toDouble();
+      final h = info.image.height.toDouble();
+      if (h > 0 && w > 0 && mounted) {
+        setState(() => _mediaAspectRatio = w / h);
+      }
+      stream.removeListener(listener!);
+    });
+    stream.addListener(listener);
   }
 
   void _initFeedVideo() {
     final controller = VideoPlayerController.networkUrl(Uri.parse(widget.item.url));
     _controller = controller;
+    FeedVideoVolume.instance.register(controller);
+    FeedPlaybackFocusManager.instance.register(controller);
     controller.initialize().then((_) {
       if (!mounted) return;
-      controller.setVolume(1.0);
+      final size = controller.value.size;
+      if (size.width > 0 && size.height > 0) {
+        _mediaAspectRatio = size.width / size.height;
+      }
+      FeedVideoVolume.instance.applyVolume(controller);
       controller.setLooping(true);
-      controller.play();
       setState(() => _videoReady = true);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _visibilityKey.currentState?.refreshVisibility();
@@ -327,68 +506,167 @@ class _FeedCroppedMediaState extends State<_FeedCroppedMedia> {
 
   @override
   void dispose() {
-    _controller?.dispose();
+    if (_controller != null) {
+      FeedVideoVolume.instance.unregister(_controller!);
+      FeedPlaybackFocusManager.instance.unregister(_controller!);
+      _controller!.dispose();
+    }
     super.dispose();
   }
 
-  Future<void> _openFullscreen() {
+  void _openFullscreen() {
     final item = widget.item;
-    if (!item.isVideo || _controller == null) {
-      return _openFeedMediaFullscreen(context, item);
+    if (item.isVideo && _controller != null) {
+      _visibilityKey.currentState?.setVisibilityTrackingEnabled(false);
+      FeedPlaybackFocusManager.instance.holdFocus(_controller!);
     }
-    return _openFeedMediaFullscreen(context, item, videoController: _controller);
+    _openFeedMediaFullscreen(
+      context,
+      heroTag: _heroTag,
+      item: item,
+      mediaAspectRatio: _mediaAspectRatio,
+      videoController: _controller,
+    ).whenComplete(() {
+      if (!mounted || !item.isVideo || _controller == null) return;
+      FeedPlaybackFocusManager.instance.releaseHold(_controller!);
+      _visibilityKey.currentState?.setVisibilityTrackingEnabled(true);
+      _visibilityKey.currentState?.refreshVisibility();
+    });
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildFeedSurface() {
     final item = widget.item;
 
-    Widget media;
     if (item.isVideo) {
       if (!_videoReady || _controller == null) {
-        media = const ColoredBox(
+        return const ColoredBox(
           color: Colors.black,
           child: Center(child: CircularProgressIndicator(color: KairoColors.primary500)),
         );
-      } else {
-        media = FeedVideoVisibility(
-          key: _visibilityKey,
-          controller: _controller!,
-          child: InlineVideoPlayer(
-            url: item.url,
-            controller: _controller,
-            height: _kFeedMediaMaxHeight,
-            fit: BoxFit.cover,
-            autoPlay: true,
-            autoDispose: false,
-            tapToTogglePlay: false,
-            showPlayOverlay: false,
-            onTap: _openFullscreen,
-          ),
-        );
       }
-    } else {
-      media = GestureDetector(
-        onTap: () => _openFeedMediaFullscreen(context, item),
-        child: CachedNetworkImage(
-          imageUrl: item.url,
-          width: widget.width,
-          height: _kFeedMediaMaxHeight,
+      return FeedVideoVisibility(
+        key: _visibilityKey,
+        controller: _controller!,
+        child: _HeroMediaSurface(
+          item: item,
           fit: BoxFit.cover,
+          controller: _controller,
         ),
       );
     }
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: _kFeedMediaMaxHeight),
-      child: SizedBox(
-        width: widget.width,
-        height: _kFeedMediaMaxHeight,
-        child: ColoredBox(
-          color: Colors.black,
-          child: ClipRect(child: media),
+    return _HeroMediaSurface(
+      item: item,
+      fit: BoxFit.cover,
+      controller: _controller,
+    );
+  }
+
+  Widget _buildMediaFrame() {
+    return AspectRatio(
+      aspectRatio: _kFeedDisplayAspectRatio,
+      child: ClipRect(
+        child: IgnorePointer(
+          child: _buildFeedSurface(),
         ),
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final frame = _buildMediaFrame();
+
+    if (widget.isSoloVideo) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _openFullscreen,
+        child: _buildFeedHero(
+          heroTag: _heroTag,
+          child: frame,
+        ),
+      );
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.onLike,
+      onDoubleTap: widget.onLike,
+      child: frame,
+    );
+  }
+}
+
+class _FeedFloatingAuthorHeader extends StatelessWidget {
+  const _FeedFloatingAuthorHeader({
+    required this.post,
+    required this.isOwner,
+    required this.onMenuSelected,
+  });
+
+  final Post post;
+  final bool isOwner;
+  final void Function(String) onMenuSelected;
+
+  static const _kFloatMargin = 8.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: _kFloatMargin,
+      right: _kFloatMargin,
+      bottom: _kFloatMargin,
+      child: _PostAuthorRow(
+        post: post,
+        isOwner: isOwner,
+        onMenuSelected: onMenuSelected,
+        compact: true,
+        light: true,
+      ),
+    );
+  }
+}
+
+class _FeedMediaStack extends StatelessWidget {
+  const _FeedMediaStack({
+    required this.item,
+    required this.postId,
+    required this.post,
+    required this.isOwner,
+    required this.onMenuSelected,
+    this.onLike,
+  });
+
+  final MediaItem item;
+  final String postId;
+  final Post post;
+  final bool isOwner;
+  final void Function(String) onMenuSelected;
+  final VoidCallback? onLike;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.hardEdge,
+      children: [
+        _FeedCroppedMedia(
+          item: item,
+          postId: postId,
+          isSoloVideo: post.isSoloVideo,
+          onLike: onLike,
+        ),
+        _FeedFloatingAuthorHeader(
+          post: post,
+          isOwner: isOwner,
+          onMenuSelected: onMenuSelected,
+        ),
+        if (item.isVideo)
+          const Positioned(
+            top: 8,
+            right: 8,
+            child: _FeedMuteButton(),
+          ),
+      ],
     );
   }
 }
@@ -396,116 +674,104 @@ class _FeedCroppedMediaState extends State<_FeedCroppedMedia> {
 class _FeedMediaBlock extends StatelessWidget {
   const _FeedMediaBlock({
     required this.items,
+    required this.postId,
     required this.post,
+    required this.isOwner,
+    required this.onMenuSelected,
     this.onLike,
-    this.onComment,
-    this.onShare,
-    this.onIntercede,
   });
 
   final List<MediaItem> items;
+  final String postId;
   final Post post;
+  final bool isOwner;
+  final void Function(String) onMenuSelected;
   final VoidCallback? onLike;
-  final VoidCallback? onComment;
-  final VoidCallback? onShare;
-  final VoidCallback? onIntercede;
 
   @override
   Widget build(BuildContext context) {
     final item = items.first;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        return SizedBox(
-          height: _kFeedMediaMaxHeight,
-          width: w,
-          child: Stack(
-            clipBehavior: Clip.hardEdge,
-            fit: StackFit.expand,
-            children: [
-              _FeedCroppedMedia(item: item, width: w),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.black.withValues(alpha: 0.65), Colors.transparent],
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(_kFeedContentPadding, 10, _kFeedContentPadding, 28),
-                    child: _PostActionsRow(
-                      post: post,
-                      onLike: onLike,
-                      onComment: onComment,
-                      onShare: onShare,
-                      onIntercede: onIntercede,
-                      light: true,
-                      alignStart: true,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+    return _FeedMediaStack(
+      item: item,
+      postId: postId,
+      post: post,
+      isOwner: isOwner,
+      onMenuSelected: onMenuSelected,
+      onLike: onLike,
     );
   }
 }
 
 class _FeedMediaFullscreenPage extends StatelessWidget {
   const _FeedMediaFullscreenPage({
+    required this.heroTag,
     required this.item,
+    required this.mediaAspectRatio,
     this.videoController,
   });
 
+  final String heroTag;
   final MediaItem item;
+  final double mediaAspectRatio;
   final VideoPlayerController? videoController;
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
+    final screen = MediaQuery.sizeOf(context);
+    final detailSize = _detailMediaSize(mediaAspectRatio, screen);
+    final isVideo = item.isVideo && videoController != null;
+
+    Widget heroChild = SizedBox(
+      width: detailSize.width,
+      height: detailSize.height,
+      child: _HeroMediaSurface(
+        item: item,
+        fit: BoxFit.contain,
+        controller: videoController,
+      ),
+    );
+
+    if (!item.isVideo) {
+      heroChild = InteractiveViewer(
+        minScale: 0.5,
+        maxScale: 4,
+        child: heroChild,
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          ColoredBox(
-            color: Colors.black,
-            child: Center(
-              child: item.isVideo && videoController != null
-                  ? FullscreenVideoPlayer(controller: videoController!)
-                  : item.isVideo
-                      ? SizedBox(
-                          width: size.width,
-                          height: size.height,
-                          child: InlineVideoPlayer(
-                            url: item.url,
-                            height: size.height,
-                            fit: BoxFit.contain,
-                            autoPlay: true,
-                            tapToTogglePlay: false,
-                          ),
-                        )
-                      : InteractiveViewer(
-                          minScale: 0.5,
-                          maxScale: 4,
-                          child: CachedNetworkImage(
-                            imageUrl: item.url,
-                            fit: BoxFit.contain,
-                            width: size.width,
-                            height: size.height,
-                          ),
-                        ),
+          const ColoredBox(color: Colors.black),
+          Center(
+            child: Hero(
+              tag: heroTag,
+              createRectTween: (begin, end) => MaterialRectArcTween(begin: begin, end: end),
+              flightShuttleBuilder: (
+                flightContext,
+                animation,
+                flightDirection,
+                fromHeroContext,
+                toHeroContext,
+              ) {
+                final Hero toHero = toHeroContext.widget as Hero;
+                return Material(color: Colors.black, child: toHero.child);
+              },
+              child: Material(
+                color: Colors.black,
+                child: heroChild,
+              ),
             ),
           ),
+          if (isVideo)
+            Positioned.fill(
+              child: FullscreenVideoPlayer(
+                controller: videoController!,
+                showVideoLayer: false,
+              ),
+            ),
           SafeArea(
             child: Align(
               alignment: Alignment.topLeft,
@@ -565,18 +831,26 @@ class _PostInfoPanel extends StatelessWidget {
                 ? const BorderRadius.vertical(bottom: Radius.circular(_kCardRadius))
                 : BorderRadius.circular(_kCardRadius),
       ),
-      padding: EdgeInsets.fromLTRB(
-        _kFeedContentPadding,
-        edgeToEdge ? 8 : 10,
-        _kFeedContentPadding,
-        edgeToEdge ? 6 : 8,
-      ),
+      padding: hasMediaAbove
+          ? const EdgeInsets.fromLTRB(_kFeedContentPadding, 4, _kFeedContentPadding, 4)
+          : EdgeInsets.fromLTRB(
+              _kFeedContentPadding,
+              edgeToEdge ? 5 : 7,
+              _kFeedContentPadding,
+              edgeToEdge ? 4 : 6,
+            ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _PostAuthorRow(post: post, isOwner: isOwner, onMenuSelected: onMenuSelected),
-          const SizedBox(height: 6),
+          if (!hasMediaAbove)
+            _PostAuthorRow(
+              post: post,
+              isOwner: isOwner,
+              onMenuSelected: onMenuSelected,
+              compact: true,
+            ),
+          if (!hasMediaAbove) const SizedBox(height: 3),
           _PostActionsRow(
             post: post,
             onLike: onLike,
@@ -586,22 +860,26 @@ class _PostInfoPanel extends StatelessWidget {
             alignStart: true,
           ),
           if (post.content.isNotEmpty) ...[
-            const SizedBox(height: 8),
+            SizedBox(height: hasMediaAbove ? 2 : 4),
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
                 body,
-                style: const TextStyle(color: KairoColors.darkText, fontSize: 14, height: 1.35),
+                style: TextStyle(
+                  color: KairoColors.darkText,
+                  fontSize: hasMediaAbove ? 12 : 13,
+                  height: 1.25,
+                ),
               ),
             ),
             if (shouldTruncate)
               GestureDetector(
                 onTap: onToggleExpand,
                 child: Padding(
-                  padding: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.only(top: 1),
                   child: Text(
                     expanded ? 'Ver menos' : 'Leer más',
-                    style: const TextStyle(color: KairoColors.primary400, fontSize: 13, fontWeight: FontWeight.w600),
+                    style: const TextStyle(color: KairoColors.primary400, fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
@@ -617,11 +895,24 @@ class _PostAuthorRow extends StatelessWidget {
     required this.post,
     required this.isOwner,
     required this.onMenuSelected,
+    this.compact = false,
+    this.light = false,
   });
 
   final Post post;
   final bool isOwner;
   final void Function(String) onMenuSelected;
+  final bool compact;
+  final bool light;
+
+  static const _kOverlayTextShadow = [
+    Shadow(color: Color(0xCC000000), blurRadius: 4, offset: Offset(0, 1)),
+    Shadow(color: Color(0x66000000), blurRadius: 8, offset: Offset(0, 2)),
+  ];
+
+  static final _kAvatarOverlayShadow = [
+    BoxShadow(color: Colors.black.withValues(alpha: 0.45), blurRadius: 6, offset: const Offset(0, 1)),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -629,16 +920,27 @@ class _PostAuthorRow extends StatelessWidget {
         ? null
         : () => context.push('/profile?userId=${post.author.id}');
 
+    final nameColor = light ? Colors.white : KairoColors.darkText;
+    final metaColor = light ? Colors.white70 : KairoColors.darkTextSecondary;
+    final menuColor = light ? Colors.white : KairoColors.darkTextSecondary;
+
+    final avatar = KairoAvatar(
+      imageUrl: post.isAnonymous ? null : post.author.image,
+      name: post.isAnonymous ? '?' : post.author.displayName,
+      size: compact ? 32 : 36,
+      onTap: goProfile,
+    );
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        KairoAvatar(
-          imageUrl: post.isAnonymous ? null : post.author.image,
-          name: post.isAnonymous ? '?' : post.author.displayName,
-          size: 36,
-          onTap: goProfile,
-        ),
-        const SizedBox(width: 10),
+        light
+            ? DecoratedBox(
+                decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: _kAvatarOverlayShadow),
+                child: avatar,
+              )
+            : avatar,
+        SizedBox(width: compact ? 8 : 10),
         Expanded(
           child: GestureDetector(
             onTap: goProfile,
@@ -647,39 +949,47 @@ class _PostAuthorRow extends StatelessWidget {
               children: [
                 Text(
                   post.isAnonymous ? 'Anónimo' : post.author.displayName,
-                  style: const TextStyle(
-                    color: KairoColors.darkText,
+                  style: TextStyle(
+                    color: nameColor,
                     fontWeight: FontWeight.w600,
-                    fontSize: 14,
+                    fontSize: compact ? 13 : 14,
+                    shadows: light ? _kOverlayTextShadow : null,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Text(
-                      formatTimeAgo(post.createdAt),
-                      style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 5),
-                      child: Text('•', style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12)),
-                    ),
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(color: KairoColors.successText, shape: BoxShape.circle),
-                    ),
-                    const SizedBox(width: 4),
-                    const Text('Público', style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12)),
-                  ],
-                ),
+                if (!light) ...[
+                  SizedBox(height: compact ? 1 : 2),
+                  Row(
+                    children: [
+                      Text(
+                        formatTimeAgo(post.createdAt),
+                        style: TextStyle(color: metaColor, fontSize: compact ? 11 : 12),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 5),
+                        child: Text('•', style: TextStyle(color: metaColor, fontSize: compact ? 11 : 12)),
+                      ),
+                      Container(
+                        width: compact ? 5 : 6,
+                        height: compact ? 5 : 6,
+                        decoration: const BoxDecoration(color: KairoColors.successText, shape: BoxShape.circle),
+                      ),
+                      SizedBox(width: compact ? 3 : 4),
+                      Text('Público', style: TextStyle(color: metaColor, fontSize: compact ? 11 : 12)),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
         ),
         if (isOwner)
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: KairoColors.darkTextSecondary, size: 20),
+            icon: Icon(
+              Icons.more_vert,
+              color: menuColor,
+              size: 20,
+              shadows: light ? _kOverlayTextShadow : null,
+            ),
             color: KairoColors.darkCard,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -730,7 +1040,6 @@ class _PostActionsRow extends StatelessWidget {
     this.onComment,
     this.onShare,
     this.onIntercede,
-    this.light = false,
     this.alignStart = false,
   });
 
@@ -739,15 +1048,14 @@ class _PostActionsRow extends StatelessWidget {
   final VoidCallback? onComment;
   final VoidCallback? onShare;
   final VoidCallback? onIntercede;
-  final bool light;
   final bool alignStart;
 
   @override
   Widget build(BuildContext context) {
     final liked = post.isLiked;
     final interceded = post.hasInterceded;
-    final base = light ? Colors.white : KairoColors.darkTextSecondary;
-    final likeColor = liked ? (light ? const Color(0xFFFF8A8A) : Colors.red) : base;
+    const base = KairoColors.darkTextSecondary;
+    final likeColor = liked ? Colors.red : base;
 
     final chips = <Widget>[
       _ActionChip(
@@ -842,10 +1150,23 @@ class _ActionChip extends StatelessWidget {
 // ─── Media ──────────────────────────────────────────────────────────────────
 
 class _PostMedia extends StatelessWidget {
-  const _PostMedia({required this.items, this.feed = false});
+  const _PostMedia({
+    required this.items,
+    this.feed = false,
+    this.postId = '',
+    this.post,
+    this.isOwner = false,
+    this.onMenuSelected,
+    this.onLike,
+  });
 
   final List<MediaItem> items;
   final bool feed;
+  final String postId;
+  final Post? post;
+  final bool isOwner;
+  final void Function(String)? onMenuSelected;
+  final VoidCallback? onLike;
 
   static const _profileHeight = 280.0;
 
@@ -855,29 +1176,30 @@ class _PostMedia extends StatelessWidget {
 
     final item = items.first;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cardWidth = constraints.maxWidth;
+    if (feed && post != null && onMenuSelected != null) {
+      return _FeedMediaStack(
+        item: item,
+        postId: postId,
+        post: post!,
+        isOwner: isOwner,
+        onMenuSelected: onMenuSelected!,
+        onLike: onLike,
+      );
+    }
 
-        if (feed) {
-          return _FeedCroppedMedia(item: item, width: cardWidth);
-        }
+    if (item.isVideo) {
+      return SizedBox(
+        width: double.infinity,
+        height: _profileHeight,
+        child: InlineVideoPlayer(url: item.url, height: _profileHeight),
+      );
+    }
 
-        if (item.isVideo) {
-          return SizedBox(
-            width: double.infinity,
-            height: _profileHeight,
-            child: InlineVideoPlayer(url: item.url, height: _profileHeight),
-          );
-        }
-
-        return CachedNetworkImage(
-          imageUrl: item.url,
-          height: _profileHeight,
-          width: double.infinity,
-          fit: BoxFit.cover,
-        );
-      },
+    return CachedNetworkImage(
+      imageUrl: item.url,
+      height: _profileHeight,
+      width: double.infinity,
+      fit: BoxFit.cover,
     );
   }
 }

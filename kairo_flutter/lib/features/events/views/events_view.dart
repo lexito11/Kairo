@@ -41,7 +41,9 @@ class EventsView extends StatelessWidget {
           ),
           if (provider.selectedEvent != null) EventDetailModal(event: provider.selectedEvent!),
           if (provider.showFilterPanel) const EventsFilterPanel(),
+          if (provider.showDenominationDropdown) const DenominationNoticeModal(),
           if (provider.showChurchRegistration) const ChurchRegistrationModal(),
+          if (provider.showChurchReviewNotice) const ChurchReviewNoticeModal(),
           if (provider.showParticularesInactive)
             SimpleInfoModal(
               title: 'Particulares',
