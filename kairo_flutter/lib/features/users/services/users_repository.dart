@@ -116,6 +116,16 @@ class UsersRepository {
         .eq('following_id', userId);
   }
 
+  Future<Set<String>> fetchFollowingIds() async {
+    final uid = _userId;
+    if (uid == null) return {};
+    final rows = await _client
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', uid);
+    return (rows as List).map((r) => r['following_id'] as String).toSet();
+  }
+
   Future<({int unreadCount, int friendsCount})> getSocialSummary() async {
     final uid = _userId;
     if (uid == null) return (unreadCount: 0, friendsCount: 0);

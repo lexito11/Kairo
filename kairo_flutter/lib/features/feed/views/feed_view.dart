@@ -79,6 +79,7 @@ class _FeedViewState extends State<FeedView> with WidgetsBindingObserver {
   void _openShare(String postId, String preview) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => ShareSheet(postId: postId, postPreview: preview),
     );
@@ -93,12 +94,14 @@ class _FeedViewState extends State<FeedView> with WidgetsBindingObserver {
     final headerHeight = topInset + 44;
 
     return MainScaffold(
-      child: RefreshIndicator(
-        color: KairoColors.primary500,
-        onRefresh: () => provider.loadFeed(refresh: true),
-        child: CustomScrollView(
-          controller: _scrollController,
-          slivers: [
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: RefreshIndicator(
+          color: KairoColors.primary500,
+          onRefresh: () => provider.loadFeed(refresh: true),
+          child: CustomScrollView(
+            controller: _scrollController,
+            slivers: [
             SliverPersistentHeader(
               pinned: true,
               delegate: _FeedHeaderDelegate(summary: summary, height: headerHeight),
@@ -144,6 +147,7 @@ class _FeedViewState extends State<FeedView> with WidgetsBindingObserver {
                       final post = provider.posts[i];
                       final uid = AuthService().currentUser?.id;
                       final isOwner = uid != null && post.author.id == uid;
+                      final showFollow = uid != null && !isOwner && !post.isAnonymous;
                       return Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -152,10 +156,25 @@ class _FeedViewState extends State<FeedView> with WidgetsBindingObserver {
                             post: post,
                             feedLayout: true,
                             isOwner: isOwner,
+                            isFollowingAuthor: provider.isFollowing(post.author.id),
+                            followLoading: provider.isFollowLoading(post.author.id),
                             onLike: () => provider.toggleLike(post.id),
                             onComment: () => _openComments(post.id),
                             onShare: () => _openShare(post.id, post.content),
                             onIntercede: () => provider.toggleIntercede(post.id),
+                            onToggleFollowAuthor: showFollow
+                                ? () async {
+                                    try {
+                                      await provider.toggleFollow(post.author.id);
+                                    } catch (_) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('No se pudo actualizar el seguimiento')),
+                                        );
+                                      }
+                                    }
+                                  }
+                                : null,
                             onEditContent: (content) => provider.updatePostContent(post.id, content),
                             onDeleteText: () => provider.updatePostContent(post.id, ''),
                             onDeletePost: () => provider.deletePost(post.id),
@@ -176,6 +195,7 @@ class _FeedViewState extends State<FeedView> with WidgetsBindingObserver {
               ),
           ],
         ),
+      ),
       ),
     );
   }

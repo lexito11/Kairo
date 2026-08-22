@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/models/post.dart';
+import '../../../core/models/kairo_user.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../core/utils/format_time_ago.dart';
 import '../../../core/utils/media_utils.dart';
@@ -13,9 +14,12 @@ import '../../../core/widgets/feed_video_volume.dart';
 import '../../../core/widgets/fullscreen_video_player.dart';
 import '../../../core/widgets/inline_video_player.dart';
 import '../../../core/widgets/kairo_avatar.dart';
+import '../services/posts_repository.dart';
+import 'amen_likers_sheet.dart';
 
 const _kCardRadius = 16.0;
 const _kInfoBg = Color(0xFF252525);
+const _kFeedFloatMargin = 8.0;
 const _kFeedContentPadding = 12.0;
 
 class PostCard extends StatefulWidget {
@@ -24,10 +28,13 @@ class PostCard extends StatefulWidget {
     required this.post,
     this.feedLayout = false,
     this.isOwner = false,
+    this.isFollowingAuthor = false,
+    this.followLoading = false,
     this.onLike,
     this.onComment,
     this.onShare,
     this.onIntercede,
+    this.onToggleFollowAuthor,
     this.onEditContent,
     this.onDeleteText,
     this.onDeletePost,
@@ -36,10 +43,13 @@ class PostCard extends StatefulWidget {
   final Post post;
   final bool feedLayout;
   final bool isOwner;
+  final bool isFollowingAuthor;
+  final bool followLoading;
   final VoidCallback? onLike;
   final VoidCallback? onComment;
   final VoidCallback? onShare;
   final VoidCallback? onIntercede;
+  final VoidCallback? onToggleFollowAuthor;
   final Future<void> Function(String content)? onEditContent;
   final Future<void> Function()? onDeleteText;
   final Future<void> Function()? onDeletePost;
@@ -170,6 +180,10 @@ class _PostCardState extends State<PostCard> {
     final body = shouldTruncate && !_expanded
         ? '${post.content.substring(0, charLimit)}...'
         : post.content;
+    final showFollowButton = widget.feedLayout &&
+        !widget.isOwner &&
+        !post.isAnonymous &&
+        widget.onToggleFollowAuthor != null;
 
     if (!widget.feedLayout) {
       return _ProfilePostCard(
@@ -215,6 +229,10 @@ class _PostCardState extends State<PostCard> {
                         isOwner: widget.isOwner,
                         onMenuSelected: _onMenuSelected,
                         onLike: widget.onLike,
+                        showFollowButton: showFollowButton,
+                        isFollowingAuthor: widget.isFollowingAuthor,
+                        followLoading: widget.followLoading,
+                        onToggleFollowAuthor: widget.onToggleFollowAuthor,
                       ),
                     )
                   : _FeedMediaBlock(
@@ -224,6 +242,10 @@ class _PostCardState extends State<PostCard> {
                       isOwner: widget.isOwner,
                       onMenuSelected: _onMenuSelected,
                       onLike: widget.onLike,
+                      showFollowButton: showFollowButton,
+                      isFollowingAuthor: widget.isFollowingAuthor,
+                      followLoading: widget.followLoading,
+                      onToggleFollowAuthor: widget.onToggleFollowAuthor,
                     ),
             _PostInfoPanel(
               post: post,
@@ -239,6 +261,10 @@ class _PostCardState extends State<PostCard> {
               onComment: widget.onComment,
               onShare: widget.onShare,
               onIntercede: widget.onIntercede,
+              showFollowButton: showFollowButton,
+              isFollowingAuthor: widget.isFollowingAuthor,
+              followLoading: widget.followLoading,
+              onToggleFollowAuthor: widget.onToggleFollowAuthor,
             ),
           ],
         );
@@ -602,13 +628,21 @@ class _FeedFloatingAuthorHeader extends StatelessWidget {
     required this.post,
     required this.isOwner,
     required this.onMenuSelected,
+    this.showFollowButton = false,
+    this.isFollowingAuthor = false,
+    this.followLoading = false,
+    this.onToggleFollowAuthor,
   });
 
   final Post post;
   final bool isOwner;
   final void Function(String) onMenuSelected;
+  final bool showFollowButton;
+  final bool isFollowingAuthor;
+  final bool followLoading;
+  final VoidCallback? onToggleFollowAuthor;
 
-  static const _kFloatMargin = 8.0;
+  static const _kFloatMargin = _kFeedFloatMargin;
 
   @override
   Widget build(BuildContext context) {
@@ -622,6 +656,11 @@ class _FeedFloatingAuthorHeader extends StatelessWidget {
         onMenuSelected: onMenuSelected,
         compact: true,
         light: true,
+        showMenu: false,
+        showFollowButton: showFollowButton,
+        isFollowingAuthor: isFollowingAuthor,
+        followLoading: followLoading,
+        onToggleFollowAuthor: onToggleFollowAuthor,
       ),
     );
   }
@@ -635,6 +674,10 @@ class _FeedMediaStack extends StatelessWidget {
     required this.isOwner,
     required this.onMenuSelected,
     this.onLike,
+    this.showFollowButton = false,
+    this.isFollowingAuthor = false,
+    this.followLoading = false,
+    this.onToggleFollowAuthor,
   });
 
   final MediaItem item;
@@ -643,6 +686,10 @@ class _FeedMediaStack extends StatelessWidget {
   final bool isOwner;
   final void Function(String) onMenuSelected;
   final VoidCallback? onLike;
+  final bool showFollowButton;
+  final bool isFollowingAuthor;
+  final bool followLoading;
+  final VoidCallback? onToggleFollowAuthor;
 
   @override
   Widget build(BuildContext context) {
@@ -659,7 +706,22 @@ class _FeedMediaStack extends StatelessWidget {
           post: post,
           isOwner: isOwner,
           onMenuSelected: onMenuSelected,
+          showFollowButton: showFollowButton,
+          isFollowingAuthor: isFollowingAuthor,
+          followLoading: followLoading,
+          onToggleFollowAuthor: onToggleFollowAuthor,
         ),
+        if (isOwner)
+          Positioned(
+            right: _kFeedFloatMargin,
+            bottom: _kFeedFloatMargin,
+            child: _PostOwnerMenu(
+              post: post,
+              isOwner: isOwner,
+              onMenuSelected: onMenuSelected,
+              light: true,
+            ),
+          ),
         if (item.isVideo)
           const Positioned(
             top: 8,
@@ -679,6 +741,10 @@ class _FeedMediaBlock extends StatelessWidget {
     required this.isOwner,
     required this.onMenuSelected,
     this.onLike,
+    this.showFollowButton = false,
+    this.isFollowingAuthor = false,
+    this.followLoading = false,
+    this.onToggleFollowAuthor,
   });
 
   final List<MediaItem> items;
@@ -687,6 +753,10 @@ class _FeedMediaBlock extends StatelessWidget {
   final bool isOwner;
   final void Function(String) onMenuSelected;
   final VoidCallback? onLike;
+  final bool showFollowButton;
+  final bool isFollowingAuthor;
+  final bool followLoading;
+  final VoidCallback? onToggleFollowAuthor;
 
   @override
   Widget build(BuildContext context) {
@@ -698,6 +768,10 @@ class _FeedMediaBlock extends StatelessWidget {
       isOwner: isOwner,
       onMenuSelected: onMenuSelected,
       onLike: onLike,
+      showFollowButton: showFollowButton,
+      isFollowingAuthor: isFollowingAuthor,
+      followLoading: followLoading,
+      onToggleFollowAuthor: onToggleFollowAuthor,
     );
   }
 }
@@ -804,6 +878,10 @@ class _PostInfoPanel extends StatelessWidget {
     this.onComment,
     this.onShare,
     this.onIntercede,
+    this.showFollowButton = false,
+    this.isFollowingAuthor = false,
+    this.followLoading = false,
+    this.onToggleFollowAuthor,
   });
 
   final Post post;
@@ -819,6 +897,10 @@ class _PostInfoPanel extends StatelessWidget {
   final VoidCallback? onComment;
   final VoidCallback? onShare;
   final VoidCallback? onIntercede;
+  final bool showFollowButton;
+  final bool isFollowingAuthor;
+  final bool followLoading;
+  final VoidCallback? onToggleFollowAuthor;
 
   @override
   Widget build(BuildContext context) {
@@ -832,7 +914,7 @@ class _PostInfoPanel extends StatelessWidget {
                 : BorderRadius.circular(_kCardRadius),
       ),
       padding: hasMediaAbove
-          ? const EdgeInsets.fromLTRB(_kFeedContentPadding, 4, _kFeedContentPadding, 4)
+          ? const EdgeInsets.fromLTRB(_kFeedFloatMargin, 4, _kFeedContentPadding, 4)
           : EdgeInsets.fromLTRB(
               _kFeedContentPadding,
               edgeToEdge ? 5 : 7,
@@ -849,6 +931,10 @@ class _PostInfoPanel extends StatelessWidget {
               isOwner: isOwner,
               onMenuSelected: onMenuSelected,
               compact: true,
+              showFollowButton: showFollowButton,
+              isFollowingAuthor: isFollowingAuthor,
+              followLoading: followLoading,
+              onToggleFollowAuthor: onToggleFollowAuthor,
             ),
           if (!hasMediaAbove) const SizedBox(height: 3),
           _PostActionsRow(
@@ -857,8 +943,19 @@ class _PostInfoPanel extends StatelessWidget {
             onComment: onComment,
             onShare: onShare,
             onIntercede: onIntercede,
-            alignStart: true,
+            anchorActionsStart: true,
+            actionColor: KairoColors.darkText,
+            iconSize: 20,
+            labelFontSize: 12,
           ),
+          if (post.likesCount > 0) ...[
+            SizedBox(height: hasMediaAbove ? 4 : 6),
+            _PostAmenLikesLine(
+              key: ValueKey('${post.id}_${post.likesCount}'),
+              postId: post.id,
+              likesCount: post.likesCount,
+            ),
+          ],
           if (post.content.isNotEmpty) ...[
             SizedBox(height: hasMediaAbove ? 2 : 4),
             Align(
@@ -890,6 +987,133 @@ class _PostInfoPanel extends StatelessWidget {
   }
 }
 
+class _PostOwnerMenu extends StatelessWidget {
+  const _PostOwnerMenu({
+    required this.post,
+    required this.isOwner,
+    required this.onMenuSelected,
+    this.light = false,
+  });
+
+  final Post post;
+  final bool isOwner;
+  final void Function(String) onMenuSelected;
+  final bool light;
+
+  static const _kOverlayTextShadow = [
+    Shadow(color: Color(0xCC000000), blurRadius: 4, offset: Offset(0, 1)),
+    Shadow(color: Color(0x66000000), blurRadius: 8, offset: Offset(0, 2)),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isOwner) return const SizedBox.shrink();
+
+    final menuColor = light ? Colors.white : KairoColors.darkTextSecondary;
+
+    return PopupMenuButton<String>(
+      icon: Icon(
+        Icons.more_vert,
+        color: menuColor,
+        size: 20,
+        shadows: light ? _kOverlayTextShadow : null,
+      ),
+      color: KairoColors.darkCard,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      onSelected: onMenuSelected,
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: 'edit',
+          child: Row(
+            children: [
+              Icon(Icons.edit_outlined, size: 20, color: KairoColors.darkText),
+              SizedBox(width: 12),
+              Text('Editar texto', style: TextStyle(color: KairoColors.darkText)),
+            ],
+          ),
+        ),
+        if (post.content.isNotEmpty)
+          const PopupMenuItem(
+            value: 'delete_text',
+            child: Row(
+              children: [
+                Icon(Icons.text_fields_outlined, size: 20, color: KairoColors.errorText),
+                SizedBox(width: 12),
+                Text('Eliminar texto', style: TextStyle(color: KairoColors.errorText)),
+              ],
+            ),
+          ),
+        const PopupMenuItem(
+          value: 'delete_post',
+          child: Row(
+            children: [
+              Icon(Icons.delete_outline, size: 20, color: KairoColors.errorText),
+              SizedBox(width: 12),
+              Text('Eliminar publicación', style: TextStyle(color: KairoColors.errorText)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AuthorFollowTextButton extends StatelessWidget {
+  const _AuthorFollowTextButton({
+    required this.isFollowing,
+    required this.loading,
+    required this.onPressed,
+    this.compact = false,
+    this.light = false,
+  });
+
+  final bool isFollowing;
+  final bool loading;
+  final VoidCallback onPressed;
+  final bool compact;
+  final bool light;
+
+  static const _kOverlayTextShadow = [
+    Shadow(color: Color(0xCC000000), blurRadius: 4, offset: Offset(0, 1)),
+    Shadow(color: Color(0x66000000), blurRadius: 8, offset: Offset(0, 2)),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: loading ? null : onPressed,
+      style: TextButton.styleFrom(
+        padding: EdgeInsets.zero,
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        foregroundColor: KairoColors.primary400,
+        overlayColor: Colors.transparent,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      child: loading
+          ? SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: KairoColors.primary400,
+              ),
+            )
+          : Text(
+              isFollowing ? 'Dejar de seguir' : 'Seguir',
+              style: TextStyle(
+                color: KairoColors.primary400,
+                fontSize: compact ? 12 : 13,
+                fontWeight: FontWeight.w600,
+                shadows: light ? _kOverlayTextShadow : null,
+              ),
+            ),
+    );
+  }
+}
+
 class _PostAuthorRow extends StatelessWidget {
   const _PostAuthorRow({
     required this.post,
@@ -897,6 +1121,11 @@ class _PostAuthorRow extends StatelessWidget {
     required this.onMenuSelected,
     this.compact = false,
     this.light = false,
+    this.showMenu = true,
+    this.showFollowButton = false,
+    this.isFollowingAuthor = false,
+    this.followLoading = false,
+    this.onToggleFollowAuthor,
   });
 
   final Post post;
@@ -904,6 +1133,11 @@ class _PostAuthorRow extends StatelessWidget {
   final void Function(String) onMenuSelected;
   final bool compact;
   final bool light;
+  final bool showMenu;
+  final bool showFollowButton;
+  final bool isFollowingAuthor;
+  final bool followLoading;
+  final VoidCallback? onToggleFollowAuthor;
 
   static const _kOverlayTextShadow = [
     Shadow(color: Color(0xCC000000), blurRadius: 4, offset: Offset(0, 1)),
@@ -922,7 +1156,6 @@ class _PostAuthorRow extends StatelessWidget {
 
     final nameColor = light ? Colors.white : KairoColors.darkText;
     final metaColor = light ? Colors.white70 : KairoColors.darkTextSecondary;
-    final menuColor = light ? Colors.white : KairoColors.darkTextSecondary;
 
     final avatar = KairoAvatar(
       imageUrl: post.isAnonymous ? null : post.author.image,
@@ -942,91 +1175,81 @@ class _PostAuthorRow extends StatelessWidget {
             : avatar,
         SizedBox(width: compact ? 8 : 10),
         Expanded(
-          child: GestureDetector(
-            onTap: goProfile,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Flexible(
+                    child: GestureDetector(
+                      onTap: goProfile,
+                      child: Text(
+                        post.isAnonymous ? 'Anónimo' : post.author.displayName,
+                        style: TextStyle(
+                          color: nameColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: compact ? 13 : 14,
+                          shadows: light ? _kOverlayTextShadow : null,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ),
+                  if (showFollowButton && onToggleFollowAuthor != null) ...[
+                    const SizedBox(width: 8),
+                    _AuthorFollowTextButton(
+                      isFollowing: isFollowingAuthor,
+                      loading: followLoading,
+                      onPressed: onToggleFollowAuthor!,
+                      compact: compact,
+                      light: light,
+                    ),
+                  ],
+                ],
+              ),
+              if (light) ...[
+                SizedBox(height: compact ? 1 : 2),
                 Text(
-                  post.isAnonymous ? 'Anónimo' : post.author.displayName,
+                  formatTimeAgo(post.createdAt),
                   style: TextStyle(
-                    color: nameColor,
-                    fontWeight: FontWeight.w600,
-                    fontSize: compact ? 13 : 14,
-                    shadows: light ? _kOverlayTextShadow : null,
+                    color: metaColor,
+                    fontSize: compact ? 10 : 11,
+                    shadows: _kOverlayTextShadow,
                   ),
                 ),
-                if (!light) ...[
-                  SizedBox(height: compact ? 1 : 2),
-                  Row(
-                    children: [
-                      Text(
-                        formatTimeAgo(post.createdAt),
-                        style: TextStyle(color: metaColor, fontSize: compact ? 11 : 12),
-                      ),
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 5),
-                        child: Text('•', style: TextStyle(color: metaColor, fontSize: compact ? 11 : 12)),
-                      ),
-                      Container(
-                        width: compact ? 5 : 6,
-                        height: compact ? 5 : 6,
-                        decoration: const BoxDecoration(color: KairoColors.successText, shape: BoxShape.circle),
-                      ),
-                      SizedBox(width: compact ? 3 : 4),
-                      Text('Público', style: TextStyle(color: metaColor, fontSize: compact ? 11 : 12)),
-                    ],
-                  ),
-                ],
               ],
-            ),
+              if (!light) ...[
+                SizedBox(height: compact ? 1 : 2),
+                Row(
+                  children: [
+                    Text(
+                      formatTimeAgo(post.createdAt),
+                      style: TextStyle(color: metaColor, fontSize: compact ? 11 : 12),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 5),
+                      child: Text('•', style: TextStyle(color: metaColor, fontSize: compact ? 11 : 12)),
+                    ),
+                    Container(
+                      width: compact ? 5 : 6,
+                      height: compact ? 5 : 6,
+                      decoration: const BoxDecoration(color: KairoColors.successText, shape: BoxShape.circle),
+                    ),
+                    SizedBox(width: compact ? 3 : 4),
+                    Text('Público', style: TextStyle(color: metaColor, fontSize: compact ? 11 : 12)),
+                  ],
+                ),
+              ],
+            ],
           ),
         ),
-        if (isOwner)
-          PopupMenuButton<String>(
-            icon: Icon(
-              Icons.more_vert,
-              color: menuColor,
-              size: 20,
-              shadows: light ? _kOverlayTextShadow : null,
-            ),
-            color: KairoColors.darkCard,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            onSelected: onMenuSelected,
-            itemBuilder: (_) => [
-              const PopupMenuItem(
-                value: 'edit',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit_outlined, size: 20, color: KairoColors.darkText),
-                    SizedBox(width: 12),
-                    Text('Editar texto', style: TextStyle(color: KairoColors.darkText)),
-                  ],
-                ),
-              ),
-              if (post.content.isNotEmpty)
-                const PopupMenuItem(
-                  value: 'delete_text',
-                  child: Row(
-                    children: [
-                      Icon(Icons.text_fields_outlined, size: 20, color: KairoColors.errorText),
-                      SizedBox(width: 12),
-                      Text('Eliminar texto', style: TextStyle(color: KairoColors.errorText)),
-                    ],
-                  ),
-                ),
-              const PopupMenuItem(
-                value: 'delete_post',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline, size: 20, color: KairoColors.errorText),
-                    SizedBox(width: 12),
-                    Text('Eliminar publicación', style: TextStyle(color: KairoColors.errorText)),
-                  ],
-                ),
-              ),
-            ],
+        if (showMenu)
+          _PostOwnerMenu(
+            post: post,
+            isOwner: isOwner,
+            onMenuSelected: onMenuSelected,
+            light: light,
           ),
       ],
     );
@@ -1041,6 +1264,10 @@ class _PostActionsRow extends StatelessWidget {
     this.onShare,
     this.onIntercede,
     this.alignStart = false,
+    this.anchorActionsStart = false,
+    this.actionColor = KairoColors.darkTextSecondary,
+    this.iconSize = 17,
+    this.labelFontSize = 11,
   });
 
   final Post post;
@@ -1049,46 +1276,116 @@ class _PostActionsRow extends StatelessWidget {
   final VoidCallback? onShare;
   final VoidCallback? onIntercede;
   final bool alignStart;
+  final bool anchorActionsStart;
+  final Color actionColor;
+  final double iconSize;
+  final double labelFontSize;
+
+  double _chipContentWidth(String label) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: TextStyle(fontSize: labelFontSize, fontWeight: FontWeight.w500),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    return iconSize + (iconSize >= 20 ? 5 : 4) + tp.width;
+  }
+
+  Widget _distributedRow(List<Widget> chips) {
+    return Row(
+      children: [
+        for (var i = 0; i < chips.length; i++) ...[
+          if (i > 0) const SizedBox(width: 4),
+          Expanded(child: Center(child: chips[i])),
+        ],
+      ],
+    );
+  }
+
+  Widget _anchoredFeedRow(List<Widget> chips, List<String> labels) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final count = chips.length;
+        final slotWidth = (width - (count - 1) * 4) / count;
+        final centerStep = slotWidth + 4;
+        final centers = List.generate(count, (i) => slotWidth / 2 + i * centerStep);
+        final widths = labels.map(_chipContentWidth).toList();
+        final anchorLeft = centers.first - widths.first / 2;
+
+        return SizedBox(
+          width: width,
+          height: iconSize + 6,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              for (var i = 0; i < count; i++)
+                Positioned(
+                  left: centers[i] - widths[i] / 2 - anchorLeft,
+                  top: 0,
+                  child: chips[i],
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final liked = post.isLiked;
     final interceded = post.hasInterceded;
-    const base = KairoColors.darkTextSecondary;
+    final base = actionColor;
     final likeColor = liked ? Colors.red : base;
+    final amenLabel = '${post.likesCount} Amén';
+    final commentLabel = '${post.commentsCount} Comentar';
+    final thirdLabel = post.isPrayer
+        ? (interceded ? 'Intercediste' : '${post.intercessionsCount} Interceder')
+        : '0 Compartir';
 
     final chips = <Widget>[
       _ActionChip(
         icon: liked ? Icons.favorite : Icons.favorite_border,
-        label: '${post.likesCount} Amén',
+        label: amenLabel,
         color: likeColor,
         onTap: onLike,
         alignStart: alignStart,
+        iconSize: iconSize,
+        labelFontSize: labelFontSize,
       ),
       _ActionChip(
         icon: Icons.chat_bubble_outline,
-        label: '${post.commentsCount} Comentar',
+        label: commentLabel,
         color: base,
         onTap: onComment,
         alignStart: alignStart,
+        iconSize: iconSize,
+        labelFontSize: labelFontSize,
       ),
       if (post.isPrayer)
         _ActionChip(
           icon: Icons.volunteer_activism_outlined,
-          label: interceded ? 'Intercediste' : '${post.intercessionsCount} Interceder',
+          label: thirdLabel,
           color: interceded ? KairoColors.primary400 : base,
           onTap: interceded ? null : onIntercede,
           alignStart: alignStart,
+          iconSize: iconSize,
+          labelFontSize: labelFontSize,
         )
       else
         _ActionChip(
           icon: Icons.share_outlined,
-          label: '0 Compartir',
+          label: thirdLabel,
           color: base,
           onTap: onShare,
           alignStart: alignStart,
+          iconSize: iconSize,
+          labelFontSize: labelFontSize,
         ),
     ];
+    final labels = [amenLabel, commentLabel, thirdLabel];
 
     if (alignStart) {
       return Wrap(
@@ -1099,13 +1396,11 @@ class _PostActionsRow extends StatelessWidget {
       );
     }
 
-    return Row(
-      children: [
-        Expanded(child: chips[0]),
-        Expanded(child: chips[1]),
-        Expanded(child: chips[2]),
-      ],
-    );
+    final row = _distributedRow(chips);
+
+    if (!anchorActionsStart) return row;
+
+    return _anchoredFeedRow(chips, labels);
   }
 }
 
@@ -1116,6 +1411,8 @@ class _ActionChip extends StatelessWidget {
     this.color,
     this.onTap,
     this.alignStart = false,
+    this.iconSize = 17,
+    this.labelFontSize = 11,
   });
 
   final IconData icon;
@@ -1123,6 +1420,8 @@ class _ActionChip extends StatelessWidget {
   final Color? color;
   final VoidCallback? onTap;
   final bool alignStart;
+  final double iconSize;
+  final double labelFontSize;
 
   @override
   Widget build(BuildContext context) {
@@ -1134,12 +1433,135 @@ class _ActionChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: alignStart ? MainAxisAlignment.start : MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 17, color: c),
-          const SizedBox(width: 4),
+          Icon(icon, size: iconSize, color: c),
+          SizedBox(width: iconSize >= 20 ? 5 : 4),
           Text(
             label,
-            style: TextStyle(color: c, fontSize: 11, fontWeight: FontWeight.w500),
+            style: TextStyle(color: c, fontSize: labelFontSize, fontWeight: FontWeight.w500),
             overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PostAmenLikesLine extends StatefulWidget {
+  const _PostAmenLikesLine({
+    super.key,
+    required this.postId,
+    required this.likesCount,
+  });
+
+  final String postId;
+  final int likesCount;
+
+  @override
+  State<_PostAmenLikesLine> createState() => _PostAmenLikesLineState();
+}
+
+class _PostAmenLikesLineState extends State<_PostAmenLikesLine> {
+  final _repo = PostsRepository();
+  List<KairoUser> _likers = [];
+  KairoUser? _featured;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PostAmenLikesLine oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.postId != widget.postId || oldWidget.likesCount != widget.likesCount) {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final summary = await _repo.fetchPostLikersSummary(widget.postId);
+      if (mounted) {
+        setState(() {
+          _likers = summary.likers;
+          _featured = summary.featured;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _openAll() => showAmenLikersSheet(context, widget.postId);
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading || _featured == null) return const SizedBox.shrink();
+
+    final featuredName = amenLikerPublicName(_featured!);
+    final previewAvatars = _likers.take(3).toList();
+    const metaStyle = TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12, height: 1.3);
+    const boldStyle = TextStyle(color: KairoColors.darkText, fontSize: 12, fontWeight: FontWeight.bold, height: 1.3);
+
+    return GestureDetector(
+      onTap: _openAll,
+      behavior: HitTestBehavior.opaque,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          if (previewAvatars.isNotEmpty) ...[
+            SizedBox(
+              width: 16.0 + (previewAvatars.length - 1) * 12.0,
+              height: 20,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  for (var i = 0; i < previewAvatars.length; i++)
+                    Positioned(
+                      left: i * 12.0,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: _kInfoBg, width: 1.5),
+                        ),
+                        child: KairoAvatar(
+                          imageUrl: previewAvatars[i].image,
+                          name: previewAvatars[i].displayName,
+                          size: 18,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                style: metaStyle,
+                children: [
+                  const TextSpan(text: 'Les gusta a '),
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.baseline,
+                    baseline: TextBaseline.alphabetic,
+                    child: GestureDetector(
+                      onTap: _openAll,
+                      child: const Text('todos', style: boldStyle),
+                    ),
+                  ),
+                  TextSpan(text: ' $featuredName', style: boldStyle),
+                  if (widget.likesCount > 1) const TextSpan(text: ' y otros', style: boldStyle),
+                ],
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
@@ -1158,6 +1580,10 @@ class _PostMedia extends StatelessWidget {
     this.isOwner = false,
     this.onMenuSelected,
     this.onLike,
+    this.showFollowButton = false,
+    this.isFollowingAuthor = false,
+    this.followLoading = false,
+    this.onToggleFollowAuthor,
   });
 
   final List<MediaItem> items;
@@ -1167,6 +1593,10 @@ class _PostMedia extends StatelessWidget {
   final bool isOwner;
   final void Function(String)? onMenuSelected;
   final VoidCallback? onLike;
+  final bool showFollowButton;
+  final bool isFollowingAuthor;
+  final bool followLoading;
+  final VoidCallback? onToggleFollowAuthor;
 
   static const _profileHeight = 280.0;
 
@@ -1184,6 +1614,10 @@ class _PostMedia extends StatelessWidget {
         isOwner: isOwner,
         onMenuSelected: onMenuSelected!,
         onLike: onLike,
+        showFollowButton: showFollowButton,
+        isFollowingAuthor: isFollowingAuthor,
+        followLoading: followLoading,
+        onToggleFollowAuthor: onToggleFollowAuthor,
       );
     }
 

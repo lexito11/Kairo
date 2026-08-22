@@ -1,11 +1,17 @@
 import 'package:flutter/foundation.dart';
 import '../../../core/models/post.dart';
+import '../../users/services/users_repository.dart';
 import '../services/posts_repository.dart';
 
 class PostsProvider extends ChangeNotifier {
-  PostsProvider({PostsRepository? repo}) : _repo = repo ?? PostsRepository();
+  PostsProvider({PostsRepository? repo, UsersRepository? usersRepo})
+      : _repo = repo ?? PostsRepository(),
+        _usersRepo = usersRepo ?? UsersRepository();
 
   final PostsRepository _repo;
+  final UsersRepository _usersRepo;
+  final Set<String> _followingIds = {};
+  String? _followLoadingUserId;
 
   final List<Post> _posts = [];
   bool _loading = false;
@@ -20,6 +26,18 @@ class PostsProvider extends ChangeNotifier {
   bool get loadingMore => _loadingMore;
   bool get hasMore => _hasMore;
   String? get error => _error;
+
+  bool isFollowing(String userId) => _followingIds.contains(userId);
+  bool isFollowLoading(String userId) => _followLoadingUserId == userId;
+
+  Future<void> _syncFollowingIds() async {
+    try {
+      final ids = await _usersRepo.fetchFollowingIds();
+      _followingIds
+        ..clear()
+        ..addAll(ids);
+    } catch (_) {}
+  }
 
   Future<void> loadFeed({bool refresh = false, bool videoOnly = false}) async {
     if (_loading) return;
@@ -40,6 +58,7 @@ class PostsProvider extends ChangeNotifier {
       _posts.addAll(batch);
       _hasMore = batch.length >= 20;
       if (batch.isNotEmpty) _page++;
+      await _syncFollowingIds();
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -61,6 +80,37 @@ class PostsProvider extends ChangeNotifier {
       _error = e.toString();
     } finally {
       _loadingMore = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleFollow(String userId) async {
+    if (_followLoadingUserId != null) return;
+
+    final wasFollowing = _followingIds.contains(userId);
+    if (wasFollowing) {
+      _followingIds.remove(userId);
+    } else {
+      _followingIds.add(userId);
+    }
+    _followLoadingUserId = userId;
+    notifyListeners();
+
+    try {
+      if (wasFollowing) {
+        await _usersRepo.unfollow(userId);
+      } else {
+        await _usersRepo.follow(userId);
+      }
+    } catch (_) {
+      if (wasFollowing) {
+        _followingIds.add(userId);
+      } else {
+        _followingIds.remove(userId);
+      }
+      rethrow;
+    } finally {
+      _followLoadingUserId = null;
       notifyListeners();
     }
   }

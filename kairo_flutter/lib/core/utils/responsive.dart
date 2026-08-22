@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 
 abstract final class ResponsiveBreakpoints {
   static const double desktop = 768;
-  static const double feedCardMaxWidth = 450;
+  /// Mismo incremento (+8) que las tarjetas de historias del feed.
+  static const double feedStorySizeBoost = 8;
+  static const double feedCardMaxWidth = 450 + feedStorySizeBoost;
+  static const double feedStoryCardWidth = 68 + feedStorySizeBoost;
+  static const double feedStoryCardHeight = 84 + feedStorySizeBoost;
 
   static const double feedWebMediaAspect = 9 / 16;
   static const double feedWebViewportHeightFactor = 0.82;
 
   static const double feedHeaderBarHeight = 40;
-  static const double feedStoriesHeight = 96;
+  static const double feedStoriesHeight = feedStoryCardHeight;
 
   static bool isDesktop(BuildContext context) =>
       MediaQuery.sizeOf(context).width >= desktop;

@@ -20,7 +20,7 @@ class EventsTodaySection extends StatelessWidget {
     final events = provider.todayEvents;
     if (events.isEmpty) return const SizedBox.shrink();
 
-    final feedTopInset = inFeed && !ResponsiveBreakpoints.isDesktop(context) ? 36.0 : 0.0;
+    final feedTopInset = inFeed && !ResponsiveBreakpoints.isDesktop(context) ? 8.0 : 0.0;
 
     return ColoredBox(
       color: KairoColors.darkBg,

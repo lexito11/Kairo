@@ -4,15 +4,16 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/models/story.dart';
 import '../../../core/theme/kairo_colors.dart';
+import '../../../core/utils/responsive.dart';
 import '../../../features/auth/services/auth_service.dart';
 import '../services/stories_repository.dart';
 import 'story_viewer.dart';
 
 /// Tarjetas verticales compactas estilo Facebook Stories.
-const _kStoryWidth = 68.0;
-const _kStoryHeight = 84.0;
+final _kStoryWidth = ResponsiveBreakpoints.feedStoryCardWidth;
+final _kStoryHeight = ResponsiveBreakpoints.feedStoryCardHeight;
 const _kStoryRadius = 10.0;
-const _kStripHeight = 96.0;
+final _kStripHeight = ResponsiveBreakpoints.feedStoriesHeight;
 
 class StoriesStrip extends StatefulWidget {
   const StoriesStrip({super.key});
@@ -74,40 +75,37 @@ class _StoriesStripState extends State<StoriesStrip> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const SizedBox(
+      return SizedBox(
         height: _kStripHeight,
-        child: Center(child: CircularProgressIndicator(color: KairoColors.primary500, strokeWidth: 2)),
+        child: const Center(child: CircularProgressIndicator(color: KairoColors.primary500, strokeWidth: 2)),
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: SizedBox(
-        height: _kStripHeight,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          children: [
-            if (AuthService().isSignedIn)
-              _StoryCard(
-                label: 'Tu historia',
-                isAdd: true,
-                profileImageUrl: _myProfileImage,
-                onTap: _addStory,
-              ),
-            ..._groups.map((g) {
-              final isMine = g.author.id == AuthService().currentUser?.id;
-              final previewStory = g.stories.isNotEmpty ? g.stories.last : null;
-              return _StoryCard(
-                label: isMine ? 'Tu historia' : g.author.displayName,
-                profileImageUrl: g.author.image,
-                previewStory: previewStory,
-                hasGradient: !isMine,
-                onTap: () => _openGroup(g, 0),
-              );
-            }),
-          ],
-        ),
+    return SizedBox(
+      height: _kStripHeight,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        children: [
+          if (AuthService().isSignedIn)
+            _StoryCard(
+              label: 'Tu historia',
+              isAdd: true,
+              profileImageUrl: _myProfileImage,
+              onTap: _addStory,
+            ),
+          ..._groups.map((g) {
+            final isMine = g.author.id == AuthService().currentUser?.id;
+            final previewStory = g.stories.isNotEmpty ? g.stories.last : null;
+            return _StoryCard(
+              label: isMine ? 'Tu historia' : g.author.displayName,
+              profileImageUrl: g.author.image,
+              previewStory: previewStory,
+              hasGradient: !isMine,
+              onTap: () => _openGroup(g, 0),
+            );
+          }),
+        ],
       ),
     );
   }

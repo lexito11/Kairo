@@ -4,13 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/post.dart';
 import '../../../core/theme/kairo_colors.dart';
-import '../../../core/utils/format_time_ago.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../core/widgets/inline_video_player.dart';
-import '../../../core/widgets/kairo_avatar.dart';
 import '../../../core/widgets/bottom_navigation.dart';
+import '../../auth/services/auth_service.dart';
 import '../../posts/providers/posts_provider.dart';
 import '../../posts/services/posts_repository.dart';
+import '../../posts/widgets/comments_sheet.dart';
+import '../../posts/widgets/share_sheet.dart';
+import '../widgets/video_post_overlay.dart';
 
 class VideosView extends StatefulWidget {
   const VideosView({super.key});
@@ -116,6 +118,96 @@ class _VideosViewState extends State<VideosView> {
     }
   }
 
+  void _openComments(String postId) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => CommentsSheet(
+        postId: postId,
+        onCommentAdded: () => context.read<PostsProvider>().incrementCommentCount(postId),
+      ),
+    );
+  }
+
+  void _openShare(String postId, String preview) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ShareSheet(postId: postId, postPreview: preview),
+    );
+  }
+
+  Future<void> _showEditDialog(Post post) async {
+    final controller = TextEditingController(text: post.content);
+    final saved = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: KairoColors.darkCard,
+        title: const Text('Editar publicación', style: TextStyle(color: KairoColors.darkText)),
+        content: TextField(
+          controller: controller,
+          maxLines: 4,
+          style: const TextStyle(color: KairoColors.darkText),
+          decoration: const InputDecoration(hintText: 'Escribe tu mensaje...'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (saved == null || !mounted) return;
+    await context.read<PostsProvider>().updatePostContent(post.id, saved);
+  }
+
+  Future<void> _confirmDeleteText(Post post) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: KairoColors.darkCard,
+        title: const Text('Eliminar texto', style: TextStyle(color: KairoColors.darkText)),
+        content: const Text('¿Eliminar solo el texto?', style: TextStyle(color: KairoColors.darkTextSecondary)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Eliminar', style: TextStyle(color: KairoColors.errorText))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await context.read<PostsProvider>().updatePostContent(post.id, '');
+  }
+
+  Future<void> _confirmDeletePost(Post post) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: KairoColors.darkCard,
+        title: const Text('Eliminar publicación', style: TextStyle(color: KairoColors.darkText)),
+        content: const Text('Esta acción no se puede deshacer.', style: TextStyle(color: KairoColors.darkTextSecondary)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Eliminar', style: TextStyle(color: KairoColors.errorText))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await context.read<PostsProvider>().deletePost(post.id);
+  }
+
+  void _onMenuSelected(Post post, String value) {
+    switch (value) {
+      case 'edit':
+        _showEditDialog(post);
+      case 'delete_text':
+        _confirmDeleteText(post);
+      case 'delete_post':
+        _confirmDeletePost(post);
+    }
+  }
+
   Widget _buildVideoPage({
     required Post post,
     required int index,
@@ -124,6 +216,9 @@ class _VideosViewState extends State<VideosView> {
     final provider = context.read<PostsProvider>();
     final url = _videoUrl(post);
     final shouldPlay = index == _currentPage && _scrollSettled;
+    final uid = AuthService().currentUser?.id;
+    final isOwner = uid != null && post.author.id == uid;
+    final showFollow = uid != null && !isOwner && !post.isAnonymous;
 
     return SizedBox(
       height: pageHeight,
@@ -140,58 +235,26 @@ class _VideosViewState extends State<VideosView> {
               tapToTogglePlay: true,
               showPlayOverlay: true,
             ),
-          Positioned(
-            left: 16,
-            bottom: 24,
-            right: 80,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    KairoAvatar(
-                      imageUrl: post.author.image,
-                      name: post.author.displayName,
-                      size: 40,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      post.author.displayName,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (post.content.isNotEmpty)
-                  Text(
-                    post.content,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                Text(
-                  formatTimeAgo(post.createdAt),
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            right: 12,
-            bottom: 40,
-            child: Column(
-              children: [
-                IconButton(
-                  icon: Icon(
-                    post.isLiked ? Icons.favorite : Icons.favorite_border,
-                    color: post.isLiked ? Colors.red : Colors.white,
-                  ),
-                  onPressed: () => provider.toggleLike(post.id),
-                ),
-                Text('${post.likesCount}', style: const TextStyle(color: Colors.white, fontSize: 12)),
-              ],
-            ),
+          VideoPostOverlay(
+            post: post,
+            isOwner: isOwner,
+            isFollowingAuthor: provider.isFollowing(post.author.id),
+            followLoading: provider.isFollowLoading(post.author.id),
+            onLike: () => provider.toggleLike(post.id),
+            onComment: () => _openComments(post.id),
+            onShare: () => _openShare(post.id, post.content),
+            onToggleFollow: showFollow ? () async {
+              try {
+                await provider.toggleFollow(post.author.id);
+              } catch (_) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('No se pudo actualizar el seguimiento')),
+                  );
+                }
+              }
+            } : null,
+            onMenuSelected: isOwner ? (value) => _onMenuSelected(post, value) : null,
           ),
         ],
       ),

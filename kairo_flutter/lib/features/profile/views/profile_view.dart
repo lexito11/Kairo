@@ -269,9 +269,11 @@ class _ProfileViewState extends State<ProfileView> {
                       delegate: SliverChildBuilderDelegate(
                         (context, i) {
                           final post = _displayPosts[i];
+                          final uid = AuthService().currentUser?.id;
+                          final isPostOwner = uid != null && post.author.id == uid;
                           return PostCard(
                             post: post,
-                            isOwner: _isOwner,
+                            isOwner: isPostOwner,
                             onComment: () => showModalBottomSheet(
                               context: context,
                               isScrollControlled: true,

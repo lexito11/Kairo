@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/comment.dart';
+import '../../../core/models/kairo_user.dart';
 import '../../../core/models/post.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/utils/media_utils.dart';
@@ -153,6 +154,40 @@ class PostsRepository {
     }
     await _client.from('likes').insert({'post_id': postId, 'author_id': uid});
     return true;
+  }
+
+  Future<List<KairoUser>> fetchPostLikers(String postId) async {
+    final rows = await _client
+        .from('likes')
+        .select('created_at, author:users!likes_author_id_fkey(id, email, name, username, image)')
+        .eq('post_id', postId)
+        .order('created_at', ascending: false);
+
+    return (rows as List)
+        .map((r) => KairoUser.fromJson(r['author'] as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Prioriza un seguidor tuyo que dio Amén; si no hay, el más reciente.
+  Future<({List<KairoUser> likers, KairoUser? featured})> fetchPostLikersSummary(String postId) async {
+    final likers = await fetchPostLikers(postId);
+    if (likers.isEmpty) return (likers: likers, featured: null);
+
+    final uid = _userId;
+    if (uid != null) {
+      final followerRows = await _client
+          .from('follows')
+          .select('follower_id')
+          .eq('following_id', uid);
+      final followerIds = (followerRows as List).map((r) => r['follower_id'] as String).toSet();
+      for (final liker in likers) {
+        if (followerIds.contains(liker.id)) {
+          return (likers: likers, featured: liker);
+        }
+      }
+    }
+
+    return (likers: likers, featured: likers.first);
   }
 
   Future<List<Comment>> fetchComments(String postId) async {
