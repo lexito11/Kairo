@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/kairo_colors.dart';
+import 'feed_playback_focus_manager.dart';
 
 class KairoBottomNavigation extends StatelessWidget {
   const KairoBottomNavigation({super.key, required this.currentPath});
@@ -10,6 +11,17 @@ class KairoBottomNavigation extends StatelessWidget {
   bool _isActive(String path) {
     if (path == '/feed') return currentPath == '/feed' || currentPath == '/';
     return currentPath.startsWith(path);
+  }
+
+  void _go(BuildContext context, String path) {
+    if (path != '/feed' && path != '/videos') {
+      FeedPlaybackFocusManager.instance.pauseAll();
+    } else if (currentPath == '/videos' && path != '/videos') {
+      FeedPlaybackFocusManager.instance.pauseAll();
+    } else if ((currentPath == '/feed' || currentPath == '/') && path != '/feed') {
+      FeedPlaybackFocusManager.instance.pauseAll();
+    }
+    context.go(path);
   }
 
   @override
@@ -37,30 +49,33 @@ class KairoBottomNavigation extends StatelessWidget {
                 label: 'Feed',
                 active: _isActive('/feed'),
                 icon: Icons.home_rounded,
-                onTap: () => context.go('/feed'),
+                onTap: () => _go(context, '/feed'),
               ),
               _NavItem(
                 label: 'Videos',
                 active: _isActive('/videos'),
                 icon: Icons.play_circle_filled_rounded,
-                onTap: () => context.go('/videos'),
+                onTap: () => _go(context, '/videos'),
               ),
               _PublishButton(
                 active: _isActive('/feed/create'),
-                onTap: () => context.go('/feed/create'),
+                onTap: () {
+                  FeedPlaybackFocusManager.instance.pauseAll();
+                  context.push('/feed/create');
+                },
               ),
               _NavItem(
                 label: 'Chat',
                 active: _isActive('/chat'),
                 icon: Icons.chat_bubble_rounded,
-                onTap: () => context.go('/chat'),
+                onTap: () => _go(context, '/chat'),
                 badge: 3,
               ),
               _NavItem(
                 label: 'Perfil',
                 active: _isActive('/profile'),
                 icon: Icons.person_outline_rounded,
-                onTap: () => context.go('/profile'),
+                onTap: () => _go(context, '/profile'),
               ),
             ],
           ),

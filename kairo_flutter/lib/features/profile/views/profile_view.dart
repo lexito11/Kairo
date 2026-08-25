@@ -53,7 +53,7 @@ class _ProfileViewState extends State<ProfileView> {
     setState(() => _loading = true);
     try {
       final profile = await _usersRepo.getUserProfile(uid);
-      final posts = await _postsRepo.fetchUserPosts(uid, includeAnonymous: _isOwner);
+      final posts = await _postsRepo.fetchUserPosts(uid);
       if (_isOwner) {
         final summary = await _usersRepo.getSocialSummary();
         if (mounted) {
@@ -115,12 +115,10 @@ class _ProfileViewState extends State<ProfileView> {
 
   List<Post> get _displayPosts {
     switch (_tab) {
-      case 'anonimos':
-        return _posts.where((p) => p.isAnonymous).toList();
       case 'guardados':
         return _savedPosts;
       default:
-        return _posts.where((p) => !p.isAnonymous).toList();
+        return _posts;
     }
   }
 
@@ -147,7 +145,7 @@ class _ProfileViewState extends State<ProfileView> {
 
     final user = _profile?.user;
     final tabs = _isOwner
-        ? ['publicaciones', 'anonimos', 'guardados']
+        ? ['publicaciones', 'guardados']
         : ['publicaciones'];
 
     return MainScaffold(
@@ -228,7 +226,7 @@ class _ProfileViewState extends State<ProfileView> {
             SliverToBoxAdapter(
               child: Row(
                 children: tabs.map((t) {
-                  final labels = {'publicaciones': 'Publicaciones', 'anonimos': 'Anónimos', 'guardados': 'Guardados'};
+                  final labels = {'publicaciones': 'Publicaciones', 'guardados': 'Guardados'};
                   final active = _tab == t;
                   return Expanded(
                     child: GestureDetector(

@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../constants/church_countries.dart';
 import '../constants/events_constants.dart';
-import '../models/estado_verificacion.dart';
 import '../models/event_data.dart';
 import '../providers/events_provider.dart';
 import 'event_cards.dart';
@@ -366,7 +365,9 @@ class _ChurchRegistrationModalState extends State<ChurchRegistrationModal> {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: KairoColors.darkBorder),
               ),
-              child: SingleChildScrollView(
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -445,6 +446,14 @@ class _ChurchRegistrationModalState extends State<ChurchRegistrationModal> {
                       value: form.responsibleLeader,
                       hint: 'Nombre del pastor o líder de la iglesia',
                       onChanged: (v) => provider.updateChurchForm(form.copyWith(responsibleLeader: v)),
+                    ),
+                    const SizedBox(height: 16),
+                    _FormField(
+                      label: 'Correo del pastor',
+                      value: form.pastorEmail,
+                      hint: 'correo@iglesia.com',
+                      keyboardType: TextInputType.emailAddress,
+                      onChanged: (v) => provider.updateChurchForm(form.copyWith(pastorEmail: v)),
                     ),
                     const SizedBox(height: 16),
                     _FormField(
@@ -583,6 +592,7 @@ class _ChurchRegistrationModalState extends State<ChurchRegistrationModal> {
                     ),
                   ],
                 ),
+                ),
               ),
             ),
           ),
@@ -599,12 +609,14 @@ class _FormField extends StatelessWidget {
     required this.hint,
     required this.onChanged,
     this.obscure = false,
+    this.keyboardType,
   });
 
   final String label;
   final String value;
   final String hint;
   final bool obscure;
+  final TextInputType? keyboardType;
   final ValueChanged<String> onChanged;
 
   @override
@@ -617,6 +629,7 @@ class _FormField extends StatelessWidget {
         TextFormField(
           initialValue: value,
           obscureText: obscure,
+          keyboardType: keyboardType,
           style: const TextStyle(color: KairoColors.darkText),
           decoration: _inputDecoration(hint),
           onChanged: onChanged,
@@ -777,9 +790,7 @@ class ChurchReviewNoticeModal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<EventsProvider>();
-    final rejected = provider.myChurch?.isRejected == true ||
-        EstadoVerificacion.isRechazado(provider.myChurchStatus);
-    final motivo = provider.myChurch?.motivoRechazo;
+    final rejected = provider.reviewNoticeRejected;
 
     return GestureDetector(
       onTap: () => provider.clearChurchReviewNotice(),
@@ -807,7 +818,7 @@ class ChurchReviewNoticeModal extends StatelessWidget {
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    rejected ? 'Solicitud rechazada' : 'En revisión',
+                    provider.reviewNoticeTitle,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: rejected ? Colors.red : KairoColors.darkText,
@@ -831,11 +842,7 @@ class ChurchReviewNoticeModal extends StatelessWidget {
                   ],
                   const SizedBox(height: 16),
                   Text(
-                    rejected
-                        ? (motivo != null && motivo.isNotEmpty
-                            ? 'Tu solicitud fue rechazada: $motivo'
-                            : 'Tu solicitud de iglesia fue rechazada. Contacta al soporte si necesitas más información.')
-                        : 'Tu solicitud está siendo evaluada por nuestro equipo.',
+                    provider.reviewNoticeMessage,
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 14, height: 1.45),
                   ),
@@ -845,6 +852,201 @@ class ChurchReviewNoticeModal extends StatelessWidget {
                     style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
                   ),
                 ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class EventRequestModal extends StatelessWidget {
+  const EventRequestModal({super.key});
+
+  Future<void> _pickDate(BuildContext context, EventsProvider provider) async {
+    final form = provider.eventRequestForm;
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: form.date ?? now.add(const Duration(days: 1)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365 * 2)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: KairoColors.primary500,
+              surface: KairoColors.darkCard,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      provider.updateEventRequestForm(form.copyWith(date: picked));
+    }
+  }
+
+  String _dateLabel(DateTime? date) {
+    if (date == null) return 'Selecciona la fecha';
+    final d = date.day.toString().padLeft(2, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    return '$d/$m/${date.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<EventsProvider>();
+    final form = provider.eventRequestForm;
+
+    return GestureDetector(
+      onTap: () => provider.setShowEventRequestForm(false),
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.8),
+        child: Center(
+          child: GestureDetector(
+            onTap: () {},
+            child: Container(
+              margin: const EdgeInsets.all(16),
+              constraints: const BoxConstraints(maxWidth: 440, maxHeight: 640),
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: KairoColors.darkCard,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: KairoColors.darkBorder),
+              ),
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Solicitar evento',
+                              style: TextStyle(color: KairoColors.darkText, fontSize: 22, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => provider.setShowEventRequestForm(false),
+                            style: IconButton.styleFrom(backgroundColor: KairoColors.darkHover),
+                            icon: const Icon(Icons.close, color: KairoColors.darkTextSecondary),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Tu iglesia: ${provider.myChurch?.name ?? 'Aprobada'}',
+                        style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13),
+                      ),
+                      const SizedBox(height: 20),
+                      _FormField(
+                        label: 'Título del evento',
+                        value: form.title,
+                        hint: 'Ej. Conferencia de jóvenes',
+                        onChanged: (v) => provider.updateEventRequestForm(form.copyWith(title: v)),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('Tipo de evento', style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13, fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        initialValue: form.category.isEmpty ? null : form.category,
+                        dropdownColor: KairoColors.darkCard,
+                        decoration: _inputDecoration('Selecciona un tipo'),
+                        items: christianEventTypes
+                            .map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(color: KairoColors.darkText))))
+                            .toList(),
+                        onChanged: (v) => provider.updateEventRequestForm(form.copyWith(category: v ?? '')),
+                      ),
+                      const SizedBox(height: 16),
+                      _FormField(
+                        label: 'Ubicación',
+                        value: form.location,
+                        hint: 'Ciudad o dirección del evento',
+                        onChanged: (v) => provider.updateEventRequestForm(form.copyWith(location: v)),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('Fecha', style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13, fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: provider.eventSubmitting ? null : () => _pickDate(context, provider),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: KairoColors.darkText,
+                          side: const BorderSide(color: KairoColors.darkBorder),
+                          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                          alignment: Alignment.centerLeft,
+                        ),
+                        icon: const Icon(Icons.calendar_today, size: 18, color: KairoColors.primary400),
+                        label: Text(_dateLabel(form.date)),
+                      ),
+                      const SizedBox(height: 16),
+                      _FormField(
+                        label: 'Hora',
+                        value: form.time,
+                        hint: '19:00',
+                        keyboardType: TextInputType.datetime,
+                        onChanged: (v) => provider.updateEventRequestForm(form.copyWith(time: v)),
+                      ),
+                      const SizedBox(height: 16),
+                      _FormField(
+                        label: 'Descripción',
+                        value: form.description,
+                        hint: 'Cuéntanos de qué se trata el evento',
+                        onChanged: (v) => provider.updateEventRequestForm(form.copyWith(description: v)),
+                      ),
+                      if (provider.eventSubmitError != null) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          provider.eventSubmitError!,
+                          style: const TextStyle(color: Color(0xFFEF4444), fontSize: 13),
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                              onPressed: provider.eventSubmitting ? null : () => provider.setShowEventRequestForm(false),
+                              style: TextButton.styleFrom(
+                                backgroundColor: KairoColors.darkHover,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: const Text('Cancelar', style: TextStyle(color: KairoColors.darkTextSecondary)),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: form.isValid && !provider.eventSubmitting
+                                  ? provider.submitEventRequest
+                                  : null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: KairoColors.primary500,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                elevation: 0,
+                              ),
+                              child: provider.eventSubmitting
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Text('Enviar solicitud'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),

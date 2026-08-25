@@ -140,13 +140,11 @@ class PostsProvider extends ChangeNotifier {
   Future<Post> createPost({
     required String content,
     PostKind postKind = PostKind.post,
-    bool isAnonymous = false,
     List<({Uint8List bytes, String name, String mime})>? files,
   }) {
     return _repo.createPost(
       content: content,
       postKind: postKind,
-      isAnonymous: isAnonymous,
       files: files,
     );
   }

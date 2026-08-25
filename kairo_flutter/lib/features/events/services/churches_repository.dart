@@ -55,7 +55,7 @@ class ChurchesRepository {
   ''';
 
   static const _applicationSelect = '''
-    id, name, denomination, city, responsible_leader, country_name, country_code,
+    id, name, denomination, city, responsible_leader, pastor_email, country_name, country_code,
     is_south_america, fiscal_id, legal_document_url, facebook_url, instagram_url,
     estado_verificacion, status, motivo_rechazo, created_at,
     creator:users!churches_created_by_fkey(email, name)
@@ -143,6 +143,7 @@ class ChurchesRepository {
       'denomination': form.denomination,
       'city': form.city.trim(),
       'responsible_leader': form.responsibleLeader.trim(),
+      'pastor_email': form.pastorEmail.trim().toLowerCase(),
       'country_code': country.code,
       'country_name': country.name,
       'is_south_america': country.isSouthAmerica,

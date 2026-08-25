@@ -8,6 +8,7 @@ class Story {
     required this.createdAt,
     required this.expiresAt,
     required this.author,
+    this.soundName,
   });
 
   final String id;
@@ -16,6 +17,7 @@ class Story {
   final DateTime createdAt;
   final DateTime expiresAt;
   final KairoUser author;
+  final String? soundName;
 
   bool get isVideo => mediaType == 'video';
 
@@ -27,6 +29,7 @@ class Story {
       mediaType: json['media_type'] as String? ?? 'image',
       createdAt: DateTime.parse(json['created_at'] as String),
       expiresAt: DateTime.parse(json['expires_at'] as String),
+      soundName: json['sound_name'] as String?,
       author: authorJson != null
           ? KairoUser.fromJson(authorJson)
           : KairoUser(id: json['author_id'] as String, email: ''),

@@ -7,6 +7,7 @@ class ChurchApplication {
     required this.denomination,
     required this.city,
     required this.responsibleLeader,
+    required this.pastorEmail,
     required this.countryName,
     required this.countryCode,
     required this.isSouthAmerica,
@@ -26,6 +27,7 @@ class ChurchApplication {
   final String denomination;
   final String city;
   final String responsibleLeader;
+  final String pastorEmail;
   final String countryName;
   final String countryCode;
   final bool isSouthAmerica;
@@ -48,6 +50,7 @@ class ChurchApplication {
       denomination: map['denomination'] as String,
       city: map['city'] as String,
       responsibleLeader: map['responsible_leader'] as String? ?? '',
+      pastorEmail: map['pastor_email'] as String? ?? '',
       countryName: map['country_name'] as String,
       countryCode: map['country_code'] as String,
       isSouthAmerica: map['is_south_america'] as bool? ?? false,

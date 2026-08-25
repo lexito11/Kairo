@@ -75,7 +75,7 @@ class _VideoPostOverlayState extends State<VideoPostOverlay> {
   @override
   Widget build(BuildContext context) {
     final post = widget.post;
-    final showFollow = widget.onToggleFollow != null && !widget.isOwner && !post.isAnonymous;
+    final showFollow = widget.onToggleFollow != null && !widget.isOwner;
     const charLimit = 120;
     final shouldTruncate = post.content.length > charLimit;
     final body = shouldTruncate && !_expanded
@@ -97,11 +97,9 @@ class _VideoPostOverlayState extends State<VideoPostOverlay> {
                 children: [
                   Flexible(
                     child: GestureDetector(
-                      onTap: post.isAnonymous
-                          ? null
-                          : () => context.push('/profile?userId=${post.author.id}'),
+                      onTap: () => context.push('/profile?userId=${post.author.id}'),
                       child: Text(
-                        post.isAnonymous ? 'Anónimo' : post.author.displayName,
+                        post.author.displayName,
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
@@ -211,9 +209,7 @@ class _VideoPostOverlayState extends State<VideoPostOverlay> {
               ],
               const SizedBox(height: 16),
               GestureDetector(
-                onTap: post.isAnonymous
-                    ? null
-                    : () => context.push('/profile?userId=${post.author.id}'),
+                onTap: () => context.push('/profile?userId=${post.author.id}'),
                 child: Container(
                   padding: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
@@ -221,8 +217,8 @@ class _VideoPostOverlayState extends State<VideoPostOverlay> {
                     border: Border.all(color: Colors.white, width: 2),
                   ),
                   child: KairoAvatar(
-                    imageUrl: post.isAnonymous ? null : post.author.image,
-                    name: post.isAnonymous ? '?' : post.author.displayName,
+                    imageUrl: post.author.image,
+                    name: post.author.displayName,
                     size: 44,
                   ),
                 ),
@@ -414,6 +410,7 @@ class _VideoAmenLikesLineState extends State<_VideoAmenLikesLine> {
     final featuredName = amenLikerPublicName(_featured!);
     const metaStyle = TextStyle(color: Colors.white70, fontSize: 12, height: 1.3, shadows: _VideoPostOverlayState._textShadow);
     const boldStyle = TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, height: 1.3, shadows: _VideoPostOverlayState._textShadow);
+    const todosStyle = TextStyle(color: KairoColors.primary400, fontSize: 12, fontWeight: FontWeight.bold, height: 1.3, shadows: _VideoPostOverlayState._textShadow);
 
     return GestureDetector(
       onTap: () => showAmenLikersSheet(context, widget.postId),
@@ -423,15 +420,15 @@ class _VideoAmenLikesLineState extends State<_VideoAmenLikesLine> {
           style: metaStyle,
           children: [
             const TextSpan(text: 'Les gusta a '),
+            TextSpan(text: '$featuredName ', style: boldStyle),
             WidgetSpan(
               alignment: PlaceholderAlignment.baseline,
               baseline: TextBaseline.alphabetic,
               child: GestureDetector(
                 onTap: () => showAmenLikersSheet(context, widget.postId),
-                child: const Text('todos', style: boldStyle),
+                child: const Text('todos', style: todosStyle),
               ),
             ),
-            TextSpan(text: ' $featuredName', style: boldStyle),
             if (widget.likesCount > 1) const TextSpan(text: ' y otros', style: boldStyle),
           ],
         ),

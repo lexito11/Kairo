@@ -9,6 +9,7 @@ class ChatMessage {
     required this.receiverId,
     this.readAt,
     this.mediaUrl,
+    this.mediaType,
   });
 
   final String id;
@@ -18,8 +19,12 @@ class ChatMessage {
   final String receiverId;
   final DateTime? readAt;
   final String? mediaUrl;
+  final String? mediaType;
 
   bool isMine(String userId) => senderId == userId;
+  bool get hasMedia => mediaUrl != null && mediaUrl!.isNotEmpty;
+  bool get isImage => mediaType == 'image' || (mediaType == null && hasMedia);
+  bool get isVideo => mediaType == 'video';
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
     return ChatMessage(
@@ -28,8 +33,11 @@ class ChatMessage {
       createdAt: DateTime.parse(json['created_at'] as String),
       senderId: json['sender_id'] as String,
       receiverId: json['receiver_id'] as String,
-      readAt: json['read_at'] != null ? DateTime.parse(json['read_at'] as String) : null,
+      readAt: json['read_at'] != null
+          ? DateTime.parse(json['read_at'] as String)
+          : null,
       mediaUrl: json['media_url'] as String?,
+      mediaType: json['media_type'] as String?,
     );
   }
 }

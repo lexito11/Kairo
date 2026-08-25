@@ -3,16 +3,18 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/post.dart';
+import '../../../core/navigation/app_route_observer.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../core/utils/media_utils.dart';
-import '../../../core/widgets/inline_video_player.dart';
+import '../../../core/widgets/feed_playback_focus_manager.dart';
+import '../widgets/reels_video_player.dart';
+import '../widgets/video_post_overlay.dart';
 import '../../../core/widgets/bottom_navigation.dart';
 import '../../auth/services/auth_service.dart';
 import '../../posts/providers/posts_provider.dart';
 import '../../posts/services/posts_repository.dart';
 import '../../posts/widgets/comments_sheet.dart';
 import '../../posts/widgets/share_sheet.dart';
-import '../widgets/video_post_overlay.dart';
 
 class VideosView extends StatefulWidget {
   const VideosView({super.key});
@@ -21,13 +23,14 @@ class VideosView extends StatefulWidget {
   State<VideosView> createState() => _VideosViewState();
 }
 
-class _VideosViewState extends State<VideosView> {
+class _VideosViewState extends State<VideosView> with RouteAware {
   final _pageController = PageController();
   final _repo = PostsRepository();
   int _currentPage = 0;
   bool _pageAnimating = false;
   bool _scrollSettled = true;
   bool _scrollListenerAttached = false;
+  bool _routeActive = true;
   DateTime? _lastWheelStep;
 
   @override
@@ -36,6 +39,28 @@ class _VideosViewState extends State<VideosView> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<PostsProvider>().loadFeed(refresh: true, videoOnly: true);
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    _routeActive = false;
+    FeedPlaybackFocusManager.instance.pauseAll();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didPopNext() {
+    _routeActive = true;
+    if (mounted) setState(() {});
   }
 
   void _attachScrollListener() {
@@ -62,6 +87,8 @@ class _VideosViewState extends State<VideosView> {
 
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
+    FeedPlaybackFocusManager.instance.pauseAll();
     _detachScrollListener();
     _pageController.dispose();
     super.dispose();
@@ -215,10 +242,10 @@ class _VideosViewState extends State<VideosView> {
   }) {
     final provider = context.read<PostsProvider>();
     final url = _videoUrl(post);
-    final shouldPlay = index == _currentPage && _scrollSettled;
+    final shouldPlay = index == _currentPage && _scrollSettled && _routeActive;
     final uid = AuthService().currentUser?.id;
     final isOwner = uid != null && post.author.id == uid;
-    final showFollow = uid != null && !isOwner && !post.isAnonymous;
+    final showFollow = uid != null && !isOwner;
 
     return SizedBox(
       height: pageHeight,
@@ -227,13 +254,10 @@ class _VideosViewState extends State<VideosView> {
         fit: StackFit.expand,
         children: [
           if (url != null)
-            InlineVideoPlayer(
+            ReelsVideoPlayer(
               url: url,
               height: pageHeight,
-              fit: BoxFit.cover,
-              autoPlay: shouldPlay,
-              tapToTogglePlay: true,
-              showPlayOverlay: true,
+              active: shouldPlay,
             ),
           VideoPostOverlay(
             post: post,

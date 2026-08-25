@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/kairo_colors.dart';
@@ -48,12 +49,6 @@ class _ScopeTabs extends StatelessWidget {
           label: 'Cristianos',
           active: provider.eventScope == EventScope.cristianos,
           onTap: () => provider.setEventScope(EventScope.cristianos),
-        ),
-        const SizedBox(width: 24),
-        _ScopeTab(
-          label: 'Particulares',
-          active: false,
-          onTap: () => provider.setShowParticularesInactive(true),
         ),
         if (provider.selectedDenomination != null) ...[
           const SizedBox(width: 24),
@@ -121,7 +116,6 @@ class _DenominationRow extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: KairoColors.primary500.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -192,7 +186,7 @@ class _ActionsRowState extends State<_ActionsRow> {
           clipBehavior: Clip.none,
           children: [
             IconButton(
-              onPressed: () => provider.setShowLiveSectionInfo(true),
+              onPressed: () => context.push('/live'),
               style: IconButton.styleFrom(backgroundColor: KairoColors.darkHover),
               icon: const Icon(Icons.live_tv_outlined, color: KairoColors.darkTextSecondary),
             ),
@@ -202,10 +196,9 @@ class _ActionsRowState extends State<_ActionsRow> {
               child: Container(
                 width: 8,
                 height: 8,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: Colors.red,
                   shape: BoxShape.circle,
-                  border: Border.all(color: KairoColors.darkBg, width: 2),
                 ),
               ),
             ),

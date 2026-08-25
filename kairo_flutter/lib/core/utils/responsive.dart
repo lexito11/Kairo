@@ -6,7 +6,7 @@ abstract final class ResponsiveBreakpoints {
   static const double feedStorySizeBoost = 8;
   static const double feedCardMaxWidth = 450 + feedStorySizeBoost;
   static const double feedStoryCardWidth = 68 + feedStorySizeBoost;
-  static const double feedStoryCardHeight = 84 + feedStorySizeBoost;
+  static const double feedStoryCardHeight = 84 + feedStorySizeBoost + 10;
 
   static const double feedWebMediaAspect = 9 / 16;
   static const double feedWebViewportHeightFactor = 0.82;

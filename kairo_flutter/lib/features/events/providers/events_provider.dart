@@ -9,19 +9,23 @@ import '../models/event_data.dart';
 import '../models/estado_verificacion.dart';
 import '../services/churches_repository.dart';
 import '../services/events_prefs_service.dart';
+import '../services/events_repository.dart';
 
 class EventsProvider extends ChangeNotifier {
   EventsProvider({
     EventsPrefsService? prefs,
     ChurchesRepository? churchesRepository,
+    EventsRepository? eventsRepository,
   })  : _prefs = prefs ?? EventsPrefsService(),
-        _churchesRepository = churchesRepository ?? ChurchesRepository() {
+        _churchesRepository = churchesRepository ?? ChurchesRepository(),
+        _eventsRepository = eventsRepository ?? EventsRepository() {
     _initAttendance();
     _loadDenomination();
   }
 
   final EventsPrefsService _prefs;
   final ChurchesRepository _churchesRepository;
+  final EventsRepository _eventsRepository;
   final List<EventData> allEvents = buildMockEvents();
   final Map<String, AttendanceInfo> attendanceCounts = {};
 
@@ -32,19 +36,26 @@ class EventsProvider extends ChangeNotifier {
   EventScope eventScope = EventScope.cristianos;
   EventData? selectedEvent;
   bool showChurchRegistration = false;
+  bool showEventRequestForm = false;
   bool showFilterPanel = false;
   String searchTerm = '';
   List<String> selectedChristianCategories = [];
   List<String> selectedChristianTypes = [];
-  bool showParticularesInactive = false;
   bool showLiveSectionInfo = false;
   bool showDenominationDropdown = false;
   ChurchFormData churchFormData = ChurchFormData.empty;
+  EventRequestFormData eventRequestForm = EventRequestFormData.empty;
   bool churchSubmitting = false;
+  bool eventSubmitting = false;
   String? churchSubmitError;
+  String? eventSubmitError;
   bool showChurchReviewNotice = false;
+  String reviewNoticeTitle = 'En revisión';
+  String reviewNoticeMessage = 'Tu solicitud está siendo evaluada por nuestro equipo.';
+  bool reviewNoticeRejected = false;
   ChurchRecord? myChurch;
   String? myChurchStatus;
+  bool hasPendingEventRequest = false;
 
   void _initAttendance() {
     final random = Random();
@@ -85,6 +96,11 @@ class EventsProvider extends ChangeNotifier {
       if (myChurch != null) {
         await _prefs.setRegisteredChurch(true);
         await _prefs.setChurchStatus(myChurchStatus);
+      }
+      if (myChurch?.isActive == true) {
+        hasPendingEventRequest = await _eventsRepository.hasPendingEventRequest();
+      } else {
+        hasPendingEventRequest = false;
       }
     } catch (_) {
       myChurchStatus ??= EstadoVerificacion.normalize(await _prefs.getChurchStatus());
@@ -174,6 +190,11 @@ class EventsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void skipInitialSelector() {
+    showInitialSelector = false;
+    notifyListeners();
+  }
+
   void setActiveFilter(EventFilterType filter) {
     activeFilter = filter;
     notifyListeners();
@@ -232,33 +253,65 @@ class EventsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setShowParticularesInactive(bool value) {
-    showParticularesInactive = value;
-    notifyListeners();
-  }
-
   void setShowLiveSectionInfo(bool value) {
     showLiveSectionInfo = value;
     notifyListeners();
   }
 
+  void _showPendingNotice({
+    required String title,
+    required String message,
+    bool rejected = false,
+  }) {
+    showChurchRegistration = false;
+    showEventRequestForm = false;
+    reviewNoticeTitle = title;
+    reviewNoticeMessage = message;
+    reviewNoticeRejected = rejected;
+    showChurchReviewNotice = true;
+  }
+
   Future<void> onCreateEventTap() async {
     await _refreshMyChurch();
 
-    if (myChurch != null) {
-      if (myChurch!.isPending || myChurch!.isRejected) {
-        showChurchRegistration = false;
-        showChurchReviewNotice = true;
+    final registeredLocally = await _prefs.hasRegisteredChurch();
+    final status = myChurchStatus ?? EstadoVerificacion.normalize(await _prefs.getChurchStatus());
+
+    // Ya tiene iglesia (o quedó registrada localmente): nunca volver a pedir registro.
+    if (myChurch != null || registeredLocally) {
+      if (myChurch?.isRejected == true || EstadoVerificacion.isRechazado(status)) {
+        _showPendingNotice(
+          title: 'Solicitud rechazada',
+          message: myChurch?.motivoRechazo?.isNotEmpty == true
+              ? 'Tu solicitud de iglesia fue rechazada: ${myChurch!.motivoRechazo}'
+              : 'Tu solicitud de iglesia fue rechazada. Contacta al soporte si necesitas más información.',
+          rejected: true,
+        );
+      } else if (myChurch?.isPending == true ||
+          EstadoVerificacion.isPendiente(status) ||
+          myChurch == null) {
+        _showPendingNotice(
+          title: 'En revisión',
+          message:
+              'Tu iglesia está siendo evaluada. Cuando sea aprobada podrás solicitar la creación de eventos.',
+        );
+      } else if (hasPendingEventRequest) {
+        _showPendingNotice(
+          title: 'Evento en revisión',
+          message: 'Ya tienes una solicitud de evento pendiente. Espera la aprobación para publicar otra.',
+        );
       } else {
         showChurchRegistration = false;
         showChurchReviewNotice = false;
+        showEventRequestForm = true;
+        eventSubmitError = null;
       }
       notifyListeners();
       return;
     }
 
-    final registeredLocally = await _prefs.hasRegisteredChurch();
-    showChurchRegistration = !registeredLocally;
+    showChurchRegistration = true;
+    showEventRequestForm = false;
     showChurchReviewNotice = false;
     notifyListeners();
   }
@@ -268,9 +321,20 @@ class EventsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setShowEventRequestForm(bool value) {
+    showEventRequestForm = value;
+    notifyListeners();
+  }
+
   void updateChurchForm(ChurchFormData data) {
     churchFormData = data;
     churchSubmitError = null;
+    notifyListeners();
+  }
+
+  void updateEventRequestForm(EventRequestFormData data) {
+    eventRequestForm = data;
+    eventSubmitError = null;
     notifyListeners();
   }
 
@@ -296,11 +360,48 @@ class EventsProvider extends ChangeNotifier {
       await _prefs.setChurchStatus(EstadoVerificacion.pendiente);
       showChurchRegistration = false;
       churchFormData = ChurchFormData.empty;
-      showChurchReviewNotice = true;
+      _showPendingNotice(
+        title: 'En revisión',
+        message: 'Tu solicitud de iglesia está siendo evaluada por nuestro equipo.',
+      );
     } catch (e) {
       churchSubmitError = e.toString().replaceFirst('Exception: ', '');
     } finally {
       churchSubmitting = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> submitEventRequest() async {
+    final form = eventRequestForm;
+    final validationError = form.validationError();
+    if (validationError != null) {
+      eventSubmitError = validationError;
+      notifyListeners();
+      return;
+    }
+
+    eventSubmitting = true;
+    eventSubmitError = null;
+    notifyListeners();
+
+    try {
+      await _eventsRepository.requestEvent(
+        form: form,
+        churchId: myChurch?.id,
+        denomination: selectedDenomination,
+      );
+      hasPendingEventRequest = true;
+      eventRequestForm = EventRequestFormData.empty;
+      showEventRequestForm = false;
+      _showPendingNotice(
+        title: 'Evento en revisión',
+        message: 'Tu solicitud de evento fue enviada. Quedará en espera hasta ser aprobada.',
+      );
+    } catch (e) {
+      eventSubmitError = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      eventSubmitting = false;
       notifyListeners();
     }
   }

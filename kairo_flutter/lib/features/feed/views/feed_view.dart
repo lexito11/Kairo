@@ -147,7 +147,7 @@ class _FeedViewState extends State<FeedView> with WidgetsBindingObserver {
                       final post = provider.posts[i];
                       final uid = AuthService().currentUser?.id;
                       final isOwner = uid != null && post.author.id == uid;
-                      final showFollow = uid != null && !isOwner && !post.isAnonymous;
+                      final showFollow = uid != null && !isOwner;
                       return Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -259,7 +259,10 @@ class _FeedHeader extends StatelessWidget {
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
                 icon: const Icon(Icons.calendar_month_outlined, color: KairoColors.darkText, size: 22),
-                onPressed: () => context.push('/events'),
+                onPressed: () {
+                  FeedPlaybackFocusManager.instance.pauseAll();
+                  context.push('/events');
+                },
               ),
               IconButton(
                 visualDensity: VisualDensity.compact,
@@ -267,9 +270,8 @@ class _FeedHeader extends StatelessWidget {
                 constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
                 icon: const Icon(Icons.live_tv_rounded, color: KairoColors.primary500, size: 22),
                 onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Videos en vivo no disponibles hasta la proxima acttualizacio')),
-                  );
+                  FeedPlaybackFocusManager.instance.pauseAll();
+                  context.push('/live');
                 },
               ),
               IconButton(
@@ -278,9 +280,8 @@ class _FeedHeader extends StatelessWidget {
                 constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
                 icon: const Icon(Icons.person_add, color: KairoColors.darkText, size: 22),
                 onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Agregar amigos estará disponible pronto')),
-                  );
+                  FeedPlaybackFocusManager.instance.pauseAll();
+                  context.push('/personas');
                 },
               ),
               if (AuthService().isSignedIn)
@@ -292,7 +293,10 @@ class _FeedHeader extends StatelessWidget {
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
                       icon: const Icon(Icons.notifications_outlined, color: KairoColors.darkText, size: 22),
-                      onPressed: () => context.push('/notifications'),
+                      onPressed: () {
+                        FeedPlaybackFocusManager.instance.pauseAll();
+                        context.push('/notifications');
+                      },
                     ),
                     if (summary.unreadCount > 0)
                       Positioned(

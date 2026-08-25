@@ -26,7 +26,10 @@ class EventsView extends StatelessWidget {
 
     if (provider.showInitialSelector && AuthService().isSignedIn) {
       return MainScaffold(
-        child: DenominationSelector(onSelect: provider.handleDenominationSelect),
+        child: DenominationSelector(
+          onSelect: provider.handleDenominationSelect,
+          onBack: provider.skipInitialSelector,
+        ),
       );
     }
 
@@ -43,13 +46,8 @@ class EventsView extends StatelessWidget {
           if (provider.showFilterPanel) const EventsFilterPanel(),
           if (provider.showDenominationDropdown) const DenominationNoticeModal(),
           if (provider.showChurchRegistration) const ChurchRegistrationModal(),
+          if (provider.showEventRequestForm) const EventRequestModal(),
           if (provider.showChurchReviewNotice) const ChurchReviewNoticeModal(),
-          if (provider.showParticularesInactive)
-            SimpleInfoModal(
-              title: 'Particulares',
-              message: 'Inactivo temporalmente hasta la nueva actualizacion',
-              onClose: () => provider.setShowParticularesInactive(false),
-            ),
           if (provider.showLiveSectionInfo)
             SimpleInfoModal(
               title: 'Transmisiones en vivo',

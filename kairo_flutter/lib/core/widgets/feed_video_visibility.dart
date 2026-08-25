@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../navigation/app_route_observer.dart';
 import 'feed_playback_focus_manager.dart';
 import 'feed_video_volume.dart';
 
@@ -26,7 +27,8 @@ class FeedVideoVisibility extends StatefulWidget {
   State<FeedVideoVisibility> createState() => FeedVideoVisibilityState();
 }
 
-class FeedVideoVisibilityState extends State<FeedVideoVisibility> with WidgetsBindingObserver {
+class FeedVideoVisibilityState extends State<FeedVideoVisibility>
+    with WidgetsBindingObserver, RouteAware {
   final _key = GlobalKey();
   ScrollPosition? _scrollPosition;
   bool _meetsVisibilityThreshold = false;
@@ -54,6 +56,10 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility> with WidgetsBi
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      appRouteObserver.subscribe(this, route);
+    }
     final position = Scrollable.maybeOf(context)?.position;
     if (position != _scrollPosition) {
       _scrollPosition?.removeListener(_scheduleEvaluate);
@@ -78,9 +84,24 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility> with WidgetsBi
 
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _scrollPosition?.removeListener(_scheduleEvaluate);
     super.dispose();
+  }
+
+  @override
+  void didPushNext() {
+    // Otra ruta encima: pausar solo si no estamos en detalle de este video.
+    if (!_enabled || FeedPlaybackFocusManager.instance.isHeld(widget.controller)) {
+      return;
+    }
+    _applyPlayback();
+  }
+
+  @override
+  void didPopNext() {
+    _scheduleEvaluate();
   }
 
   void setVisibilityTrackingEnabled(bool enabled) {
@@ -141,7 +162,14 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility> with WidgetsBi
     final controller = widget.controller;
     if (!controller.value.isInitialized) return;
 
-    // Pantalla completa: no interferir con la reproducción en curso.
+    // Video abierto desde el feed: no pausar ni recalcular visibilidad.
+    if (FeedPlaybackFocusManager.instance.isHeld(controller)) {
+      if (!controller.value.isPlaying) {
+        controller.play();
+      }
+      return;
+    }
+
     if (!_enabled) return;
 
     final fraction = _visibleFraction();
@@ -160,7 +188,8 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility> with WidgetsBi
       if (!controller.value.isPlaying) {
         controller.play();
       }
-    } else if (controller.value.isPlaying) {
+    } else if (!FeedPlaybackFocusManager.instance.isHeld(controller) &&
+        controller.value.isPlaying) {
       controller.pause();
     }
   }

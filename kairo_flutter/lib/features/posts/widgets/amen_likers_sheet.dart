@@ -103,4 +103,8 @@ void showAmenLikersSheet(BuildContext context, String postId) {
   );
 }
 
-String amenLikerPublicName(KairoUser user) => user.username ?? user.displayName;
+String amenLikerPublicName(KairoUser user) {
+  final name = user.name?.trim();
+  if (name != null && name.isNotEmpty) return name;
+  return user.displayName;
+}

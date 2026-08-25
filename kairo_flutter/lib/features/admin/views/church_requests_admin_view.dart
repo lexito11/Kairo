@@ -242,6 +242,8 @@ class _ChurchRequestCard extends StatelessWidget {
           _DetailRow(label: 'País', value: application.countryName),
           _DetailRow(label: 'Ciudad', value: application.city),
           _DetailRow(label: 'Pastor / líder', value: application.responsibleLeader),
+          if (application.pastorEmail.isNotEmpty)
+            _DetailRow(label: 'Correo del pastor', value: application.pastorEmail),
           if (application.creatorEmail != null) _DetailRow(label: 'Solicitante', value: application.creatorEmail!),
           if (application.isSouthAmerica && application.fiscalId != null)
             _DetailRow(label: 'Identificador fiscal', value: application.fiscalId!),

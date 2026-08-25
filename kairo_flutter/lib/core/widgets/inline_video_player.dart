@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../theme/kairo_colors.dart';
+import 'feed_playback_focus_manager.dart';
 
 class InlineVideoPlayer extends StatefulWidget {
   const InlineVideoPlayer({
@@ -44,6 +45,7 @@ class InlineVideoPlayerState extends State<InlineVideoPlayer> {
   late bool _ownsController;
   bool _initialized = false;
   bool _error = false;
+  bool _registered = false;
 
   VideoPlayerController get controller => _controller;
 
@@ -53,6 +55,7 @@ class InlineVideoPlayerState extends State<InlineVideoPlayer> {
     if (widget.controller != null) {
       _controller = widget.controller!;
       _ownsController = false;
+      _registerPlayback();
       if (_controller.value.isInitialized) {
         _onInitialized();
       } else {
@@ -71,7 +74,20 @@ class InlineVideoPlayerState extends State<InlineVideoPlayer> {
     }
     _ownsController = widget.autoDispose;
     _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    _registerPlayback();
     _bindController();
+  }
+
+  void _registerPlayback() {
+    if (_registered) return;
+    FeedPlaybackFocusManager.instance.register(_controller);
+    _registered = true;
+  }
+
+  void _unregisterPlayback() {
+    if (!_registered) return;
+    FeedPlaybackFocusManager.instance.unregister(_controller);
+    _registered = false;
   }
 
   void _bindController() {
@@ -129,6 +145,10 @@ class InlineVideoPlayerState extends State<InlineVideoPlayer> {
 
   @override
   void dispose() {
+    if (_initialized && _controller.value.isInitialized && _controller.value.isPlaying) {
+      _controller.pause();
+    }
+    _unregisterPlayback();
     if (_ownsController) {
       _controller.dispose();
     }

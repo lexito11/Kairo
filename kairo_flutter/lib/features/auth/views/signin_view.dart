@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/prefs_service.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../services/auth_service.dart';
 import '../widgets/gradient_button.dart';
@@ -21,9 +22,27 @@ class _SignInViewState extends State<SignInView> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _auth = AuthService();
+  final _prefs = PrefsService();
 
   String? _error;
   bool _loading = false;
+  bool _rememberLogin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRememberedCredentials();
+  }
+
+  Future<void> _loadRememberedCredentials() async {
+    final saved = await _prefs.getRememberedCredentials();
+    if (!mounted || saved == null) return;
+    setState(() {
+      _rememberLogin = true;
+      _email.text = saved.email;
+      _password.text = saved.password;
+    });
+  }
 
   @override
   void dispose() {
@@ -43,6 +62,14 @@ class _SignInViewState extends State<SignInView> {
         email: _email.text,
         password: _password.text,
       );
+      if (_rememberLogin) {
+        await _prefs.saveRememberedCredentials(
+          email: _email.text,
+          password: _password.text,
+        );
+      } else {
+        await _prefs.clearRememberedCredentials();
+      }
       if (!mounted) return;
       context.go('/feed');
     } catch (e) {
@@ -91,7 +118,6 @@ class _SignInViewState extends State<SignInView> {
                     decoration: BoxDecoration(
                       color: KairoColors.darkCard,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: KairoColors.darkBorder),
                     ),
                     child: Form(
                       key: _formKey,
@@ -126,11 +152,49 @@ class _SignInViewState extends State<SignInView> {
                             controller: _password,
                             hint: '••••••••',
                             obscureText: true,
+                            showVisibilityToggle: true,
                             enabled: !_loading,
                             validator: (v) =>
                                 (v == null || v.isEmpty) ? 'La contraseña es requerida' : null,
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 8),
+                          InkWell(
+                            onTap: _loading
+                                ? null
+                                : () => setState(() => _rememberLogin = !_rememberLogin),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: Checkbox(
+                                      value: _rememberLogin,
+                                      onChanged: _loading
+                                          ? null
+                                          : (v) => setState(() => _rememberLogin = v ?? false),
+                                      activeColor: KairoColors.primary500,
+                                      side: const BorderSide(color: KairoColors.darkTextSecondary),
+                                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      'Recordar mis datos de inicio de sesión',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: KairoColors.darkTextSecondary,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
                           GradientButton(
                             label: _loading ? 'Iniciando sesión...' : 'Iniciar Sesión',
                             loading: _loading,

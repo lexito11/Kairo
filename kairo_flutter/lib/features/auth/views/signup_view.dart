@@ -114,7 +114,6 @@ class _SignUpViewState extends State<SignUpView> {
                     decoration: BoxDecoration(
                       color: KairoColors.darkCard,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: KairoColors.darkBorder),
                     ),
                     child: Form(
                       key: _formKey,
@@ -158,7 +157,6 @@ class _SignUpViewState extends State<SignUpView> {
                             label: 'Contraseña',
                             controller: _password,
                             hint: 'Mínimo 6 caracteres',
-                            obscureText: true,
                             enabled: !_loading,
                             validator: (v) {
                               if (v == null || v.isEmpty) return 'La contraseña es requerida';

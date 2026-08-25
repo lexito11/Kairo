@@ -12,6 +12,7 @@ create table if not exists public.churches (
   denomination        text not null,
   city                text not null,
   responsible_leader  text not null,
+  pastor_email        text,
   country_code        text not null,
   country_name        text not null,
   is_south_america    boolean not null default false,

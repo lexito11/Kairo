@@ -32,6 +32,10 @@ class _FullscreenVideoPlayerState extends State<FullscreenVideoPlayer> {
   void initState() {
     super.initState();
     _c.addListener(_onVideoUpdate);
+    // Al abrir detalle, el video debe seguir reproduciéndose.
+    if (_c.value.isInitialized && !_c.value.isPlaying) {
+      _c.play();
+    }
   }
 
   @override
@@ -129,10 +133,27 @@ class _FullscreenVideoPlayerState extends State<FullscreenVideoPlayer> {
     );
 
     if (!widget.showVideoLayer) {
-      return IgnorePointer(
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _togglePlay,
         child: Stack(
           fit: StackFit.expand,
-          children: [progressBar],
+          alignment: Alignment.center,
+          children: [
+            if (_showCenterIcon || !isPlaying)
+              IgnorePointer(
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                  child: Icon(
+                    isPlaying ? Icons.pause : Icons.play_arrow,
+                    color: Colors.white,
+                    size: 48,
+                  ),
+                ),
+              ),
+            progressBar,
+          ],
         ),
       );
     }

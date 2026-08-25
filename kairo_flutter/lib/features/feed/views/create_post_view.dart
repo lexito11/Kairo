@@ -20,7 +20,6 @@ class CreatePostView extends StatefulWidget {
 class _CreatePostViewState extends State<CreatePostView> {
   final _content = TextEditingController();
   PostKind _postKind = PostKind.post;
-  bool _isAnonymous = false;
   bool _submitting = false;
   String? _error;
   final List<({Uint8List bytes, String name, String mime})> _files = [];
@@ -63,18 +62,13 @@ class _CreatePostViewState extends State<CreatePostView> {
     }
     setState(() { _error = null; _submitting = true; });
     try {
-      final post = await context.read<PostsProvider>().createPost(
+      await context.read<PostsProvider>().createPost(
             content: trimmed.isEmpty ? ' ' : trimmed,
             postKind: _postKind,
-            isAnonymous: _isAnonymous,
             files: _files.isEmpty ? null : _files,
           );
       if (!mounted) return;
-      if (post.isAnonymous) {
-        context.go('/profile');
-      } else {
-        context.go('/feed');
-      }
+      context.go('/feed');
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -94,7 +88,16 @@ class _CreatePostViewState extends State<CreatePostView> {
       backgroundColor: KairoColors.darkBg,
       appBar: AppBar(
         backgroundColor: KairoColors.darkBg,
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.pop()),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/feed');
+            }
+          },
+        ),
         title: const Text('Nueva publicación', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
       body: SingleChildScrollView(
@@ -113,14 +116,6 @@ class _CreatePostViewState extends State<CreatePostView> {
                   onTap: () => setState(() => _postKind = k.$1),
                 )),
             const SizedBox(height: 20),
-            SwitchListTile(
-              title: const Text('Publicar como anónimo', style: TextStyle(color: KairoColors.darkText)),
-              subtitle: const Text('Solo visible en tu perfil > Anónimos', style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12)),
-              value: _isAnonymous,
-              activeThumbColor: KairoColors.primary500,
-              onChanged: _submitting ? null : (v) => setState(() => _isAnonymous = v),
-            ),
-            const SizedBox(height: 12),
             TextField(
               controller: _content,
               maxLines: 6,

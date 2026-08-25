@@ -35,7 +35,6 @@ class Post implements PostLike {
     this.mediaUrl,
     this.mediaType,
     this.mediaUrls,
-    this.isAnonymous = false,
     this.postKind = PostKind.post,
     this.likesCount = 0,
     this.commentsCount = 0,
@@ -54,7 +53,6 @@ class Post implements PostLike {
   final String? mediaType;
   @override
   final List<String>? mediaUrls;
-  final bool isAnonymous;
   final PostKind postKind;
   final int likesCount;
   final int commentsCount;
@@ -96,7 +94,6 @@ class Post implements PostLike {
       mediaUrl: json['media_url'] as String?,
       mediaType: json['media_type'] as String?,
       mediaUrls: _parseMediaUrls(json['media_url'] as String?),
-      isAnonymous: json['is_anonymous'] as bool? ?? false,
       postKind: postKindFromString(json['post_kind'] as String?),
       likesCount: countJson?['likes'] as int? ?? (likes?.length ?? 0),
       commentsCount: countJson?['comments'] as int? ?? 0,
@@ -127,7 +124,6 @@ class Post implements PostLike {
       mediaUrl: mediaUrl,
       mediaType: mediaType,
       mediaUrls: mediaUrls,
-      isAnonymous: isAnonymous,
       postKind: postKind,
       likesCount: likesCount ?? this.likesCount,
       commentsCount: commentsCount ?? this.commentsCount,

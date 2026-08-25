@@ -26,11 +26,14 @@ class FeedPlaybackFocusManager {
     _reconcileFocus();
   }
 
-  /// Pantalla completa: este controlador mantiene el foco exclusivo.
+  /// Pantalla completa: este controlador mantiene el foco exclusivo y sigue sonando.
   void holdFocus(VideoPlayerController controller) {
     _heldFocus = controller;
     _focused = controller;
     _pauseAllExcept(controller);
+    if (controller.value.isInitialized && !controller.value.isPlaying) {
+      controller.play();
+    }
   }
 
   void releaseHold(VideoPlayerController controller) {
@@ -38,6 +41,12 @@ class FeedPlaybackFocusManager {
     _heldFocus = null;
     _reconcileFocus();
   }
+
+  bool isFocused(VideoPlayerController controller) => _focused == controller;
+
+  bool isHeld(VideoPlayerController controller) => _heldFocus == controller;
+
+  bool get hasHeldFocus => _heldFocus != null;
 
   /// Actualiza la fracción visible y recalcula qué video puede reproducir.
   void updateVisibility(VideoPlayerController controller, double fraction) {
@@ -47,11 +56,13 @@ class FeedPlaybackFocusManager {
     _reconcileFocus();
   }
 
-  bool isFocused(VideoPlayerController controller) => _focused == controller;
-
   void pauseAll() {
+    // No cortar un video abierto a pantalla completa.
+    if (_heldFocus != null) {
+      _pauseAllExcept(_heldFocus);
+      return;
+    }
     _focused = null;
-    _heldFocus = null;
     for (final c in _registered) {
       _visibilityByController[c] = 0;
       if (c.value.isInitialized && c.value.isPlaying) {

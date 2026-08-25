@@ -1,6 +1,9 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/models/post.dart';
 import '../../../core/models/kairo_user.dart';
@@ -14,8 +17,13 @@ import '../../../core/widgets/feed_video_volume.dart';
 import '../../../core/widgets/fullscreen_video_player.dart';
 import '../../../core/widgets/inline_video_player.dart';
 import '../../../core/widgets/kairo_avatar.dart';
+import '../../auth/services/auth_service.dart';
+import '../../videos/widgets/video_post_overlay.dart';
+import '../providers/posts_provider.dart';
 import '../services/posts_repository.dart';
 import 'amen_likers_sheet.dart';
+import 'comments_sheet.dart';
+import 'share_sheet.dart';
 
 const _kCardRadius = 16.0;
 const _kInfoBg = Color(0xFF252525);
@@ -182,7 +190,6 @@ class _PostCardState extends State<PostCard> {
         : post.content;
     final showFollowButton = widget.feedLayout &&
         !widget.isOwner &&
-        !post.isAnonymous &&
         widget.onToggleFollowAuthor != null;
 
     if (!widget.feedLayout) {
@@ -251,6 +258,7 @@ class _PostCardState extends State<PostCard> {
               post: post,
               isOwner: widget.isOwner,
               hasMediaAbove: hasMedia,
+              hasBannerAbove: post.isPrayer || post.isTestimony,
               edgeToEdge: edgeToEdge,
               body: body,
               shouldTruncate: shouldTruncate,
@@ -319,29 +327,64 @@ Size _detailMediaSize(double mediaAspectRatio, Size screen) {
   return Size(width, height);
 }
 
+PageRouteBuilder<void> _feedMediaRoute(Widget page) {
+  return PageRouteBuilder<void>(
+    opaque: false,
+    transitionDuration: const Duration(milliseconds: 300),
+    reverseTransitionDuration: const Duration(milliseconds: 250),
+    pageBuilder: (context, animation, secondaryAnimation) {
+      return FadeTransition(opacity: animation, child: page);
+    },
+  );
+}
+
+Post? _postById(BuildContext context, String id) {
+  for (final p in context.read<PostsProvider>().posts) {
+    if (p.id == id) return p;
+  }
+  return null;
+}
+
 Future<void> _openFeedMediaFullscreen(
   BuildContext context, {
   required String heroTag,
   required MediaItem item,
   required double mediaAspectRatio,
   VideoPlayerController? videoController,
+  Post? post,
 }) {
   return Navigator.of(context).push<void>(
-    PageRouteBuilder<void>(
-      opaque: false,
-      transitionDuration: const Duration(milliseconds: 300),
-      reverseTransitionDuration: const Duration(milliseconds: 250),
-      pageBuilder: (context, animation, secondaryAnimation) {
-        return FadeTransition(
-          opacity: animation,
-          child: _FeedMediaFullscreenPage(
-            heroTag: heroTag,
-            item: item,
-            mediaAspectRatio: mediaAspectRatio,
-            videoController: videoController,
-          ),
-        );
-      },
+    _feedMediaRoute(
+      _FeedMediaFullscreenPage(
+        heroTag: heroTag,
+        item: item,
+        mediaAspectRatio: mediaAspectRatio,
+        videoController: videoController,
+        post: post,
+      ),
+    ),
+  );
+}
+
+Future<void> _openFeedVideoFullscreen(
+  BuildContext context, {
+  required List<Post> videoPosts,
+  required int initialIndex,
+  required String heroTag,
+  required MediaItem item,
+  required double mediaAspectRatio,
+  required VideoPlayerController initialController,
+}) {
+  return Navigator.of(context).push<void>(
+    _feedMediaRoute(
+      _FeedVideoFullscreenPager(
+        videoPosts: videoPosts,
+        initialIndex: initialIndex,
+        heroTag: heroTag,
+        initialItem: item,
+        initialAspectRatio: mediaAspectRatio,
+        initialController: initialController,
+      ),
     ),
   );
 }
@@ -461,13 +504,11 @@ class _FeedCroppedMedia extends StatefulWidget {
   const _FeedCroppedMedia({
     required this.item,
     required this.postId,
-    required this.isSoloVideo,
     this.onLike,
   });
 
   final MediaItem item;
   final String postId;
-  final bool isSoloVideo;
   final VoidCallback? onLike;
 
   @override
@@ -542,22 +583,71 @@ class _FeedCroppedMediaState extends State<_FeedCroppedMedia> {
 
   void _openFullscreen() {
     final item = widget.item;
-    if (item.isVideo && _controller != null) {
+    final controller = _controller;
+    if (item.isVideo && controller != null) {
       _visibilityKey.currentState?.setVisibilityTrackingEnabled(false);
-      FeedPlaybackFocusManager.instance.holdFocus(_controller!);
+      FeedPlaybackFocusManager.instance.holdFocus(controller);
+      if (controller.value.isInitialized) {
+        controller.play();
+      }
+
+      final provider = context.read<PostsProvider>();
+      final videoPosts = provider.posts.where((p) => p.isSoloVideo).toList();
+      final initialIndex = videoPosts.indexWhere((p) => p.id == widget.postId);
+
+      final Future<void> routeFuture;
+      if (initialIndex >= 0 && videoPosts.length > 1) {
+        routeFuture = _openFeedVideoFullscreen(
+          context,
+          videoPosts: videoPosts,
+          initialIndex: initialIndex,
+          heroTag: _heroTag,
+          item: item,
+          mediaAspectRatio: _mediaAspectRatio,
+          initialController: controller,
+        );
+      } else {
+        routeFuture = _openFeedMediaFullscreen(
+          context,
+          heroTag: _heroTag,
+          item: item,
+          mediaAspectRatio: _mediaAspectRatio,
+          videoController: controller,
+          post: _postById(context, widget.postId),
+        );
+      }
+
+      routeFuture.whenComplete(() {
+        if (!mounted || !item.isVideo) return;
+        FeedPlaybackFocusManager.instance.releaseHold(controller);
+        _visibilityKey.currentState?.setVisibilityTrackingEnabled(true);
+        _visibilityKey.currentState?.refreshVisibility();
+      });
+      // Tras el Hero, en web a veces se pausa: forzar play otra vez.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (controller.value.isInitialized &&
+            FeedPlaybackFocusManager.instance.isHeld(controller) &&
+            !controller.value.isPlaying) {
+          controller.play();
+        }
+      });
+      Future<void>.delayed(const Duration(milliseconds: 320), () {
+        if (controller.value.isInitialized &&
+            FeedPlaybackFocusManager.instance.isHeld(controller) &&
+            !controller.value.isPlaying) {
+          controller.play();
+        }
+      });
+      return;
     }
+
     _openFeedMediaFullscreen(
       context,
       heroTag: _heroTag,
       item: item,
       mediaAspectRatio: _mediaAspectRatio,
-      videoController: _controller,
-    ).whenComplete(() {
-      if (!mounted || !item.isVideo || _controller == null) return;
-      FeedPlaybackFocusManager.instance.releaseHold(_controller!);
-      _visibilityKey.currentState?.setVisibilityTrackingEnabled(true);
-      _visibilityKey.currentState?.refreshVisibility();
-    });
+      videoController: controller,
+    );
   }
 
   Widget _buildFeedSurface() {
@@ -601,24 +691,14 @@ class _FeedCroppedMediaState extends State<_FeedCroppedMedia> {
 
   @override
   Widget build(BuildContext context) {
-    final frame = _buildMediaFrame();
-
-    if (widget.isSoloVideo) {
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _openFullscreen,
-        child: _buildFeedHero(
-          heroTag: _heroTag,
-          child: frame,
-        ),
-      );
-    }
-
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: widget.onLike,
+      onTap: _openFullscreen,
       onDoubleTap: widget.onLike,
-      child: frame,
+      child: _buildFeedHero(
+        heroTag: _heroTag,
+        child: _buildMediaFrame(),
+      ),
     );
   }
 }
@@ -699,7 +779,6 @@ class _FeedMediaStack extends StatelessWidget {
         _FeedCroppedMedia(
           item: item,
           postId: postId,
-          isSoloVideo: post.isSoloVideo,
           onLike: onLike,
         ),
         _FeedFloatingAuthorHeader(
@@ -776,17 +855,17 @@ class _FeedMediaBlock extends StatelessWidget {
   }
 }
 
-class _FeedMediaFullscreenPage extends StatelessWidget {
-  const _FeedMediaFullscreenPage({
-    required this.heroTag,
+class _FeedVideoFullscreenSlide extends StatelessWidget {
+  const _FeedVideoFullscreenSlide({
     required this.item,
     required this.mediaAspectRatio,
+    this.heroTag,
     this.videoController,
   });
 
-  final String heroTag;
   final MediaItem item;
   final double mediaAspectRatio;
+  final String? heroTag;
   final VideoPlayerController? videoController;
 
   @override
@@ -813,49 +892,414 @@ class _FeedMediaFullscreenPage extends StatelessWidget {
       );
     }
 
+    final media = heroTag != null
+        ? Hero(
+            tag: heroTag!,
+            createRectTween: (begin, end) => MaterialRectArcTween(begin: begin, end: end),
+            flightShuttleBuilder: (
+              flightContext,
+              animation,
+              flightDirection,
+              fromHeroContext,
+              toHeroContext,
+            ) {
+              final Hero toHero = toHeroContext.widget as Hero;
+              return Material(color: Colors.black, child: toHero.child);
+            },
+            child: Material(color: Colors.black, child: heroChild),
+          )
+        : Material(color: Colors.black, child: heroChild);
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const ColoredBox(color: Colors.black),
+        Center(child: media),
+        if (isVideo)
+          Positioned.fill(
+            child: FullscreenVideoPlayer(
+              controller: videoController!,
+              showVideoLayer: false,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _FeedVideoFullscreenPager extends StatefulWidget {
+  const _FeedVideoFullscreenPager({
+    required this.videoPosts,
+    required this.initialIndex,
+    required this.heroTag,
+    required this.initialItem,
+    required this.initialAspectRatio,
+    required this.initialController,
+  });
+
+  final List<Post> videoPosts;
+  final int initialIndex;
+  final String heroTag;
+  final MediaItem initialItem;
+  final double initialAspectRatio;
+  final VideoPlayerController initialController;
+
+  @override
+  State<_FeedVideoFullscreenPager> createState() => _FeedVideoFullscreenPagerState();
+}
+
+class _FeedVideoFullscreenPagerState extends State<_FeedVideoFullscreenPager> {
+  late final PageController _pageController;
+  late int _currentIndex;
+  final Map<String, VideoPlayerController> _ownedControllers = {};
+  final Map<String, double> _aspectRatios = {};
+  bool _pageAnimating = false;
+  DateTime? _lastWheelStep;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+    _aspectRatios[widget.videoPosts[widget.initialIndex].id] = widget.initialAspectRatio;
+    FeedPlaybackFocusManager.instance.holdFocus(widget.initialController);
+    if (widget.initialController.value.isInitialized) {
+      widget.initialController.play();
+    }
+  }
+
+  @override
+  void dispose() {
+    final active = _controllerFor(_currentIndex);
+    if (FeedPlaybackFocusManager.instance.isHeld(active)) {
+      FeedPlaybackFocusManager.instance.releaseHold(active);
+    }
+    _pageController.dispose();
+    for (final c in _ownedControllers.values) {
+      FeedVideoVolume.instance.unregister(c);
+      FeedPlaybackFocusManager.instance.unregister(c);
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  VideoPlayerController _controllerFor(int index) {
+    final post = widget.videoPosts[index];
+    if (index == widget.initialIndex) return widget.initialController;
+
+    return _ownedControllers.putIfAbsent(post.id, () {
+      final url = post.mediaItems.first.url;
+      final controller = VideoPlayerController.networkUrl(Uri.parse(url));
+      FeedVideoVolume.instance.register(controller);
+      FeedPlaybackFocusManager.instance.register(controller);
+      controller.initialize().then((_) {
+        if (!mounted) return;
+        final size = controller.value.size;
+        if (size.width > 0 && size.height > 0) {
+          _aspectRatios[post.id] = size.width / size.height;
+        }
+        FeedVideoVolume.instance.applyVolume(controller);
+        controller.setLooping(true);
+        if (_currentIndex == index) {
+          FeedPlaybackFocusManager.instance.holdFocus(controller);
+          controller.play();
+        }
+        setState(() {});
+      }).catchError((_) {});
+      return controller;
+    });
+  }
+
+  double _aspectRatioFor(int index) {
+    final post = widget.videoPosts[index];
+    return _aspectRatios[post.id] ?? _kFeedDisplayAspectRatio;
+  }
+
+  void _onPageChanged(int index) {
+    setState(() => _currentIndex = index);
+    final controller = _controllerFor(index);
+    FeedPlaybackFocusManager.instance.holdFocus(controller);
+    if (controller.value.isInitialized && !controller.value.isPlaying) {
+      controller.play();
+    }
+  }
+
+  Future<void> _goToPage(int index) async {
+    if (!_pageController.hasClients || _pageAnimating) return;
+    setState(() => _pageAnimating = true);
+    try {
+      await _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    } finally {
+      if (mounted) setState(() => _pageAnimating = false);
+    }
+  }
+
+  void _onVerticalWheel(PointerScrollEvent event) {
+    final count = widget.videoPosts.length;
+    if (count <= 1 || _pageAnimating) return;
+
+    final now = DateTime.now();
+    if (_lastWheelStep != null &&
+        now.difference(_lastWheelStep!) < const Duration(milliseconds: 350)) {
+      return;
+    }
+
+    final delta = event.scrollDelta.dy;
+    if (delta.abs() < 4) return;
+
+    if (delta > 0 && _currentIndex < count - 1) {
+      _lastWheelStep = now;
+      _goToPage(_currentIndex + 1);
+    } else if (delta < 0 && _currentIndex > 0) {
+      _lastWheelStep = now;
+      _goToPage(_currentIndex - 1);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pageView = PageView.builder(
+      controller: _pageController,
+      scrollDirection: Axis.vertical,
+      physics: kIsWeb
+          ? const NeverScrollableScrollPhysics()
+          : const PageScrollPhysics(parent: ClampingScrollPhysics()),
+      itemCount: widget.videoPosts.length,
+      onPageChanged: _onPageChanged,
+      itemBuilder: (context, index) {
+        final post = widget.videoPosts[index];
+        final item = index == widget.initialIndex ? widget.initialItem : post.mediaItems.first;
+        final heroTag = index == widget.initialIndex ? widget.heroTag : null;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            _FeedVideoFullscreenSlide(
+              heroTag: heroTag,
+              item: item,
+              mediaAspectRatio: _aspectRatioFor(index),
+              videoController: _controllerFor(index),
+            ),
+            _FeedFullscreenVideoOverlay(post: post),
+          ],
+        );
+      },
+    );
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          const ColoredBox(color: Colors.black),
-          Center(
-            child: Hero(
-              tag: heroTag,
-              createRectTween: (begin, end) => MaterialRectArcTween(begin: begin, end: end),
-              flightShuttleBuilder: (
-                flightContext,
-                animation,
-                flightDirection,
-                fromHeroContext,
-                toHeroContext,
-              ) {
-                final Hero toHero = toHeroContext.widget as Hero;
-                return Material(color: Colors.black, child: toHero.child);
-              },
-              child: Material(
-                color: Colors.black,
-                child: heroChild,
-              ),
-            ),
+          kIsWeb
+              ? Listener(
+                  onPointerSignal: (event) {
+                    if (event is PointerScrollEvent) _onVerticalWheel(event);
+                  },
+                  child: pageView,
+                )
+              : pageView,
+          const Positioned(
+            top: 8,
+            right: 8,
+            child: SafeArea(child: _FeedMuteButton()),
           ),
-          if (isVideo)
-            Positioned.fill(
-              child: FullscreenVideoPlayer(
-                controller: videoController!,
-                showVideoLayer: false,
-              ),
-            ),
           SafeArea(
             child: Align(
               alignment: Alignment.topLeft,
               child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
                 onPressed: () => Navigator.of(context).pop(),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _FeedMediaFullscreenPage extends StatelessWidget {
+  const _FeedMediaFullscreenPage({
+    required this.heroTag,
+    required this.item,
+    required this.mediaAspectRatio,
+    this.videoController,
+    this.post,
+  });
+
+  final String heroTag;
+  final MediaItem item;
+  final double mediaAspectRatio;
+  final VideoPlayerController? videoController;
+  final Post? post;
+
+  @override
+  Widget build(BuildContext context) {
+    final isVideo = item.isVideo && videoController != null;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          _FeedVideoFullscreenSlide(
+            heroTag: heroTag,
+            item: item,
+            mediaAspectRatio: mediaAspectRatio,
+            videoController: videoController,
+          ),
+          if (isVideo && post != null) _FeedFullscreenVideoOverlay(post: post!),
+          if (isVideo)
+            const Positioned(
+              top: 8,
+              right: 8,
+              child: SafeArea(child: _FeedMuteButton()),
+            ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: IconButton(
+                icon: Icon(
+                  isVideo ? Icons.arrow_back : Icons.close,
+                  color: Colors.white,
+                  size: 28,
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeedFullscreenVideoOverlay extends StatelessWidget {
+  const _FeedFullscreenVideoOverlay({required this.post});
+
+  final Post post;
+
+  void _openComments(BuildContext context, String postId) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => CommentsSheet(
+        postId: postId,
+        onCommentAdded: () => context.read<PostsProvider>().incrementCommentCount(postId),
+      ),
+    );
+  }
+
+  void _openShare(BuildContext context, String postId, String preview) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ShareSheet(postId: postId, postPreview: preview),
+    );
+  }
+
+  Future<void> _onMenuSelected(BuildContext context, Post live, String value) async {
+    final provider = context.read<PostsProvider>();
+    switch (value) {
+      case 'edit':
+        final controller = TextEditingController(text: live.content);
+        final saved = await showDialog<String>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: KairoColors.darkCard,
+            title: const Text('Editar publicación', style: TextStyle(color: KairoColors.darkText)),
+            content: TextField(
+              controller: controller,
+              maxLines: 4,
+              style: const TextStyle(color: KairoColors.darkText),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+              TextButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('Guardar')),
+            ],
+          ),
+        );
+        controller.dispose();
+        if (saved == null || !context.mounted) return;
+        await provider.updatePostContent(live.id, saved);
+      case 'delete_text':
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: KairoColors.darkCard,
+            title: const Text('Eliminar texto', style: TextStyle(color: KairoColors.darkText)),
+            content: const Text('¿Eliminar solo el texto?', style: TextStyle(color: KairoColors.darkTextSecondary)),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Eliminar', style: TextStyle(color: KairoColors.errorText))),
+            ],
+          ),
+        );
+        if (ok != true || !context.mounted) return;
+        await provider.updatePostContent(live.id, '');
+      case 'delete_post':
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: KairoColors.darkCard,
+            title: const Text('Eliminar publicación', style: TextStyle(color: KairoColors.darkText)),
+            content: const Text('Esta acción no se puede deshacer.', style: TextStyle(color: KairoColors.darkTextSecondary)),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Eliminar', style: TextStyle(color: KairoColors.errorText))),
+            ],
+          ),
+        );
+        if (ok != true || !context.mounted) return;
+        await provider.deletePost(live.id);
+        if (context.mounted) Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<PostsProvider>();
+    var live = post;
+    for (final p in provider.posts) {
+      if (p.id == post.id) {
+        live = p;
+        break;
+      }
+    }
+    final uid = AuthService().currentUser?.id;
+    final isOwner = uid != null && live.author.id == uid;
+    final showFollow = uid != null && !isOwner;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 80),
+      child: VideoPostOverlay(
+        post: live,
+        isOwner: isOwner,
+        isFollowingAuthor: provider.isFollowing(live.author.id),
+        followLoading: provider.isFollowLoading(live.author.id),
+        onLike: () => provider.toggleLike(live.id),
+        onComment: () => _openComments(context, live.id),
+        onShare: () => _openShare(context, live.id, live.content),
+        onToggleFollow: showFollow
+            ? () async {
+                try {
+                  await provider.toggleFollow(live.author.id);
+                } catch (_) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('No se pudo actualizar el seguimiento')),
+                    );
+                  }
+                }
+              }
+            : null,
+        onMenuSelected: isOwner ? (value) => _onMenuSelected(context, live, value) : null,
       ),
     );
   }
@@ -873,6 +1317,7 @@ class _PostInfoPanel extends StatelessWidget {
     required this.expanded,
     required this.onMenuSelected,
     required this.onToggleExpand,
+    this.hasBannerAbove = false,
     this.edgeToEdge = false,
     this.onLike,
     this.onComment,
@@ -887,6 +1332,7 @@ class _PostInfoPanel extends StatelessWidget {
   final Post post;
   final bool isOwner;
   final bool hasMediaAbove;
+  final bool hasBannerAbove;
   final bool edgeToEdge;
   final String body;
   final bool shouldTruncate;
@@ -909,7 +1355,7 @@ class _PostInfoPanel extends StatelessWidget {
         color: _kInfoBg,
         borderRadius: edgeToEdge
             ? null
-            : hasMediaAbove
+            : (hasMediaAbove || hasBannerAbove)
                 ? const BorderRadius.vertical(bottom: Radius.circular(_kCardRadius))
                 : BorderRadius.circular(_kCardRadius),
       ),
@@ -1150,16 +1596,14 @@ class _PostAuthorRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final goProfile = post.isAnonymous
-        ? null
-        : () => context.push('/profile?userId=${post.author.id}');
+    final goProfile = () => context.push('/profile?userId=${post.author.id}');
 
     final nameColor = light ? Colors.white : KairoColors.darkText;
     final metaColor = light ? Colors.white70 : KairoColors.darkTextSecondary;
 
     final avatar = KairoAvatar(
-      imageUrl: post.isAnonymous ? null : post.author.image,
-      name: post.isAnonymous ? '?' : post.author.displayName,
+      imageUrl: post.author.image,
+      name: post.author.displayName,
       size: compact ? 32 : 36,
       onTap: goProfile,
     );
@@ -1184,7 +1628,7 @@ class _PostAuthorRow extends StatelessWidget {
                     child: GestureDetector(
                       onTap: goProfile,
                       child: Text(
-                        post.isAnonymous ? 'Anónimo' : post.author.displayName,
+                        post.author.displayName,
                         style: TextStyle(
                           color: nameColor,
                           fontWeight: FontWeight.bold,
@@ -1507,6 +1951,7 @@ class _PostAmenLikesLineState extends State<_PostAmenLikesLine> {
     final previewAvatars = _likers.take(3).toList();
     const metaStyle = TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12, height: 1.3);
     const boldStyle = TextStyle(color: KairoColors.darkText, fontSize: 12, fontWeight: FontWeight.bold, height: 1.3);
+    const todosStyle = TextStyle(color: KairoColors.primary400, fontSize: 12, fontWeight: FontWeight.bold, height: 1.3);
 
     return GestureDetector(
       onTap: _openAll,
@@ -1547,15 +1992,15 @@ class _PostAmenLikesLineState extends State<_PostAmenLikesLine> {
                 style: metaStyle,
                 children: [
                   const TextSpan(text: 'Les gusta a '),
+                  TextSpan(text: '$featuredName ', style: boldStyle),
                   WidgetSpan(
                     alignment: PlaceholderAlignment.baseline,
                     baseline: TextBaseline.alphabetic,
                     child: GestureDetector(
                       onTap: _openAll,
-                      child: const Text('todos', style: boldStyle),
+                      child: const Text('todos', style: todosStyle),
                     ),
                   ),
-                  TextSpan(text: ' $featuredName', style: boldStyle),
                   if (widget.likesCount > 1) const TextSpan(text: ' y otros', style: boldStyle),
                 ],
               ),

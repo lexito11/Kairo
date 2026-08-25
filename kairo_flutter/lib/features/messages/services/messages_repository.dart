@@ -14,7 +14,7 @@ class MessagesRepository {
 
     final rows = await _client
         .from('messages')
-        .select('id, content, created_at, sender_id, receiver_id, read_at, media_url')
+        .select('id, content, created_at, sender_id, receiver_id, read_at, media_url, media_type')
         .or('sender_id.eq.$uid,receiver_id.eq.$uid')
         .order('created_at', ascending: false)
         .limit(200);
@@ -71,7 +71,12 @@ class MessagesRepository {
     return (rows as List).map((r) => ChatMessage.fromJson(r as Map<String, dynamic>)).toList();
   }
 
-  Future<ChatMessage> sendMessage(String receiverId, String content) async {
+  Future<ChatMessage> sendMessage(
+    String receiverId,
+    String content, {
+    String? mediaUrl,
+    String? mediaType,
+  }) async {
     final uid = _userId;
     if (uid == null) throw Exception('Debes iniciar sesión');
 
@@ -79,6 +84,8 @@ class MessagesRepository {
       'sender_id': uid,
       'receiver_id': receiverId,
       'content': content,
+      if (mediaUrl != null) 'media_url': mediaUrl,
+      if (mediaType != null) 'media_type': mediaType,
     }).select().single();
 
     return ChatMessage.fromJson(row);

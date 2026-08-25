@@ -33,6 +33,34 @@ class FollowNotification {
   final bool viewerHasAddedBack;
 }
 
+/// Entrada de la sección Personas (follows / amigos).
+class PersonaEntry {
+  const PersonaEntry({
+    required this.user,
+    required this.followedAt,
+    required this.iFollowThem,
+    required this.theyFollowMe,
+    this.mutualCount = 0,
+  });
+
+  final KairoUser user;
+  final DateTime? followedAt;
+  final bool iFollowThem;
+  final bool theyFollowMe;
+  final int mutualCount;
+
+  bool get isFriend => iFollowThem && theyFollowMe;
+  bool get isPendingOutgoing => iFollowThem && !theyFollowMe;
+  bool get isIncomingPending => theyFollowMe && !iFollowThem;
+
+  String get subtitle {
+    final bio = user.bio?.trim();
+    if (bio != null && bio.isNotEmpty) return bio;
+    if (user.username != null && user.username!.isNotEmpty) return '@${user.username}';
+    return 'Miembro de KAIRO';
+  }
+}
+
 class UsersRepository {
   UsersRepository({SupabaseClient? client}) : _client = client ?? Supabase.instance.client;
 
@@ -130,14 +158,21 @@ class UsersRepository {
     final uid = _userId;
     if (uid == null) return (unreadCount: 0, friendsCount: 0);
 
-    final unread = await _client
+    final unreadFollows = await _client
         .from('follows')
         .select('id')
         .eq('following_id', uid)
         .isFilter('seen_by_followee_at', null);
 
+    final unreadInvites = await _client
+        .from('chat_group_invites')
+        .select('id')
+        .eq('invitee_id', uid)
+        .eq('status', 'pending')
+        .isFilter('seen_at', null);
+
     return (
-      unreadCount: (unread as List).length,
+      unreadCount: (unreadFollows as List).length + (unreadInvites as List).length,
       friendsCount: await _countFriends(uid),
     );
   }
@@ -188,12 +223,150 @@ class UsersRepository {
 
     final rows = await _client
         .from('follows')
-        .select('following:users!follows_following_id_fkey(id, email, name, username, image)')
+        .select('following:users!follows_following_id_fkey(id, email, name, username, image, bio)')
         .eq('follower_id', uid);
 
     return (rows as List)
         .map((r) => KairoUser.fromJson(r['following'] as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Personas que te siguen (Me agregaron).
+  Future<List<PersonaEntry>> getIncomingFollows() async {
+    final uid = _userId;
+    if (uid == null) return [];
+
+    final rows = await _client
+        .from('follows')
+        .select(
+          'id, created_at, follower:users!follows_follower_id_fkey(id, email, name, username, image, bio)',
+        )
+        .eq('following_id', uid)
+        .order('created_at', ascending: false);
+
+    final followingIds = await fetchFollowingIds();
+    final list = <PersonaEntry>[];
+    for (final r in rows as List) {
+      final follower = KairoUser.fromJson(r['follower'] as Map<String, dynamic>);
+      list.add(PersonaEntry(
+        user: follower,
+        followedAt: DateTime.tryParse(r['created_at'] as String? ?? ''),
+        iFollowThem: followingIds.contains(follower.id),
+        theyFollowMe: true,
+      ));
+    }
+    await _attachMutualCounts(list);
+    return list;
+  }
+
+  /// Personas que tú seguiste (Agregados).
+  Future<List<PersonaEntry>> getOutgoingFollows() async {
+    final uid = _userId;
+    if (uid == null) return [];
+
+    final rows = await _client
+        .from('follows')
+        .select(
+          'id, created_at, following:users!follows_following_id_fkey(id, email, name, username, image, bio)',
+        )
+        .eq('follower_id', uid)
+        .order('created_at', ascending: false);
+
+    final followerIds = await _fetchFollowerIds();
+    final list = <PersonaEntry>[];
+    for (final r in rows as List) {
+      final user = KairoUser.fromJson(r['following'] as Map<String, dynamic>);
+      list.add(PersonaEntry(
+        user: user,
+        followedAt: DateTime.tryParse(r['created_at'] as String? ?? ''),
+        iFollowThem: true,
+        theyFollowMe: followerIds.contains(user.id),
+      ));
+    }
+    await _attachMutualCounts(list);
+    return list;
+  }
+
+  /// Amigos = seguimiento mutuo.
+  Future<List<PersonaEntry>> getFriends() async {
+    final outgoing = await getOutgoingFollows();
+    return outgoing.where((e) => e.isFriend).toList();
+  }
+
+  Future<List<KairoUser>> searchUsers(String query, {int limit = 20}) async {
+    final uid = _userId;
+    final q = query.trim();
+    if (uid == null || q.length < 2) return [];
+
+    final sanitized = q.replaceAll(RegExp(r'[%_,]'), ' ').trim();
+    if (sanitized.length < 2) return [];
+
+    final rows = await _client
+        .from('users')
+        .select('id, email, name, username, image')
+        .neq('id', uid)
+        .or('name.ilike.%$sanitized%,username.ilike.%$sanitized%')
+        .limit(limit);
+
+    return (rows as List)
+        .map((r) => KairoUser.fromJson(r as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Quitar a alguien que te sigue (Eliminar solicitud / seguidor).
+  Future<void> removeFollower(String followerId) async {
+    final uid = _userId;
+    if (uid == null) return;
+    await _client
+        .from('follows')
+        .delete()
+        .eq('follower_id', followerId)
+        .eq('following_id', uid);
+  }
+
+  Future<Set<String>> _fetchFollowerIds() async {
+    final uid = _userId;
+    if (uid == null) return {};
+    final rows = await _client
+        .from('follows')
+        .select('follower_id')
+        .eq('following_id', uid);
+    return (rows as List).map((r) => r['follower_id'] as String).toSet();
+  }
+
+  Future<void> _attachMutualCounts(List<PersonaEntry> entries) async {
+    if (entries.isEmpty) return;
+    final uid = _userId;
+    if (uid == null) return;
+
+    final myFollowing = await fetchFollowingIds();
+    if (myFollowing.isEmpty) return;
+
+    final targetIds = entries.map((e) => e.user.id).toList();
+    final rows = await _client
+        .from('follows')
+        .select('follower_id, following_id')
+        .inFilter('following_id', targetIds)
+        .inFilter('follower_id', myFollowing.toList());
+
+    final counts = <String, int>{};
+    for (final r in rows as List) {
+      final target = r['following_id'] as String;
+      final follower = r['follower_id'] as String;
+      if (follower == uid) continue;
+      counts[target] = (counts[target] ?? 0) + 1;
+    }
+
+    for (var i = 0; i < entries.length; i++) {
+      final e = entries[i];
+      entries[i] = PersonaEntry(
+        user: e.user,
+        followedAt: e.followedAt,
+        iFollowThem: e.iFollowThem,
+        theyFollowMe: e.theyFollowMe,
+        mutualCount: counts[e.user.id] ?? 0,
+      );
+    }
   }
 
   Future<void> updateMood(String mood) async {

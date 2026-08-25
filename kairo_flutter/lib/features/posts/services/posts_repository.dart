@@ -8,7 +8,7 @@ import '../../../core/services/storage_service.dart';
 import '../../../core/utils/media_utils.dart';
 
 const _postSelect = '''
-  id, content, media_url, media_type, is_anonymous, post_kind, created_at, author_id,
+  id, content, media_url, media_type, post_kind, created_at, author_id,
   author:users!posts_author_id_fkey(id, email, name, username, image, bio),
   likes(author_id),
   comments(count),
@@ -52,19 +52,21 @@ class PostsRepository {
     return list.sublist(start, end > list.length ? list.length : end);
   }
 
-  Future<List<Post>> fetchUserPosts(String userId, {bool includeAnonymous = false}) async {
-    var query = _client.from('posts').select(_postSelect).eq('author_id', userId);
-    if (!includeAnonymous) {
-      query = query.eq('is_anonymous', false);
-    }
-    final rows = await query.order('created_at', ascending: false).limit(100);
+  Future<List<Post>> fetchUserPosts(String userId) async {
+    final rows = await _client
+        .from('posts')
+        .select(_postSelect)
+        .eq('author_id', userId)
+        .eq('is_anonymous', false)
+        .order('created_at', ascending: false)
+        .limit(100);
     return (rows as List).map((r) => _mapPost(r as Map<String, dynamic>, _userId)).toList();
   }
 
   Future<List<Post>> fetchMyPosts() async {
     final uid = _userId;
     if (uid == null) return [];
-    return fetchUserPosts(uid, includeAnonymous: true);
+    return fetchUserPosts(uid);
   }
 
   Future<List<Post>> fetchPostsByIds(List<String> ids) async {
@@ -79,7 +81,6 @@ class PostsRepository {
   Future<Post> createPost({
     required String content,
     PostKind postKind = PostKind.post,
-    bool isAnonymous = false,
     List<({Uint8List bytes, String name, String mime})>? files,
   }) async {
     final uid = _userId;
@@ -106,7 +107,7 @@ class PostsRepository {
     final row = await _client.from('posts').insert({
       'content': content,
       'author_id': uid,
-      'is_anonymous': isAnonymous,
+      'is_anonymous': false,
       'post_kind': postKindToString(postKind),
       if (mediaUrl != null) 'media_url': mediaUrl,
       if (mediaType != null) 'media_type': mediaType,

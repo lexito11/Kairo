@@ -43,6 +43,8 @@ drop policy if exists "Seguir" on public.follows;
 create policy "Seguir" on public.follows for insert with check (auth.uid() = follower_id);
 drop policy if exists "Dejar de seguir" on public.follows;
 create policy "Dejar de seguir" on public.follows for delete using (auth.uid() = follower_id);
+drop policy if exists "Eliminar seguidor" on public.follows;
+create policy "Eliminar seguidor" on public.follows for delete using (auth.uid() = following_id);
 drop policy if exists "Marcar notificación vista" on public.follows;
 create policy "Marcar notificación vista" on public.follows for update using (auth.uid() = following_id);
 
