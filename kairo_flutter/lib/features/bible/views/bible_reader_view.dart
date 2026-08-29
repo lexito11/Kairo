@@ -6,6 +6,7 @@ import '../../../core/theme/kairo_colors.dart';
 import '../../../core/widgets/main_scaffold.dart';
 import '../models/bible_book.dart';
 import '../services/bible_api.dart';
+import '../services/bible_saved_store.dart';
 import '../widgets/bible_chrome.dart';
 
 class BibleReaderView extends StatefulWidget {
@@ -30,6 +31,7 @@ class _BibleReaderViewState extends State<BibleReaderView> {
   late int _chapterNumber;
   int? _highlightVerse;
   BibleVerse? _actionVerse;
+  bool _actionSaved = false;
   bool _loading = true;
   String? _error;
   final Map<int, GlobalKey> _verseKeys = {};
@@ -199,11 +201,28 @@ class _BibleReaderViewState extends State<BibleReaderView> {
     setState(() {
       if (_actionVerse?.number == verse.number) {
         _actionVerse = null;
+        _actionSaved = false;
       } else {
         _highlightVerse = verse.number;
         _actionVerse = verse;
       }
     });
+    if (_actionVerse != null) _refreshSaved(_actionVerse!);
+  }
+
+  Future<void> _refreshSaved(BibleVerse verse) async {
+    final saved = await BibleSavedStore.instance.isSaved(_citationFor(verse));
+    if (!mounted || _actionVerse?.number != verse.number) return;
+    setState(() => _actionSaved = saved);
+  }
+
+  Future<void> _saveVerse(BibleVerse verse) async {
+    final saved = await BibleSavedStore.instance.toggle(_citationFor(verse));
+    if (!mounted) return;
+    setState(() => _actionSaved = saved);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(saved ? 'Versículo guardado' : 'Versículo quitado de guardados')),
+    );
   }
 
   Future<void> _copyVerse(BibleVerse verse) async {
@@ -416,8 +435,16 @@ class _BibleReaderViewState extends State<BibleReaderView> {
               Container(width: 1, height: 36, color: KairoColors.darkHover),
               Expanded(
                 child: _FloatingAction(
+                  icon: _actionSaved ? Icons.bookmark_rounded : Icons.bookmark_outline,
+                  label: _actionSaved ? 'Guardado' : 'Guardar',
+                  onTap: () => _saveVerse(verse),
+                ),
+              ),
+              Container(width: 1, height: 36, color: KairoColors.darkHover),
+              Expanded(
+                child: _FloatingAction(
                   icon: Icons.photo_outlined,
-                  label: 'Creador de imagen',
+                  label: 'Imagen',
                   accent: true,
                   onTap: () => _openImageCreator(verse),
                 ),

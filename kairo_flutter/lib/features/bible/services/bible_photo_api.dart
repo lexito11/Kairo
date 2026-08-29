@@ -62,7 +62,7 @@ class BiblePhotoApi {
     final uri = Uri.https('api.unsplash.com', '/search/photos', {
       'query': category.query,
       'per_page': '18',
-      'orientation': 'landscape',
+      'orientation': 'portrait',
       'content_filter': 'high',
     });
     final res = await http
@@ -100,7 +100,7 @@ class BiblePhotoApi {
     final uri = Uri.https('api.pexels.com', '/v1/search', {
       'query': category.query,
       'per_page': '18',
-      'orientation': 'landscape',
+      'orientation': 'portrait',
     });
     final res = await http
         .get(
@@ -121,8 +121,8 @@ class BiblePhotoApi {
       final src = item['src'] as Map<String, dynamic>? ?? const {};
       return BiblePhoto(
         id: 'pexels-${item['id']}',
-        thumbUrl: (src['medium'] as String?) ?? (src['tiny'] as String?) ?? '',
-        fullUrl: (src['large'] as String?) ?? (src['landscape'] as String?) ?? '',
+        thumbUrl: (src['small'] as String?) ?? (src['tiny'] as String?) ?? (src['medium'] as String?) ?? '',
+        fullUrl: (src['portrait'] as String?) ?? (src['large'] as String?) ?? (src['original'] as String?) ?? '',
         photographer: (item['photographer'] as String?) ?? 'Pexels',
         source: 'pexels',
       );

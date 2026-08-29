@@ -61,6 +61,7 @@ class BibleCitation {
     required this.chapter,
     required this.verse,
     required this.text,
+    this.savedAt = 0,
   });
 
   final String bookId;
@@ -68,8 +69,41 @@ class BibleCitation {
   final int chapter;
   final int verse;
   final String text;
+  final int savedAt;
 
+  String get id => '$bookId-$chapter-$verse';
   String get reference => '$bookName $chapter:$verse';
   String get formatted => '$reference - RVR09';
   String get clipboard => '$text\n$formatted';
+
+  BibleCitation withSavedAt(int value) {
+    return BibleCitation(
+      bookId: bookId,
+      bookName: bookName,
+      chapter: chapter,
+      verse: verse,
+      text: text,
+      savedAt: value,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'bookId': bookId,
+        'bookName': bookName,
+        'chapter': chapter,
+        'verse': verse,
+        'text': text,
+        'savedAt': savedAt,
+      };
+
+  factory BibleCitation.fromJson(Map<String, dynamic> json) {
+    return BibleCitation(
+      bookId: json['bookId'] as String? ?? '',
+      bookName: json['bookName'] as String? ?? '',
+      chapter: (json['chapter'] as num?)?.toInt() ?? 1,
+      verse: (json['verse'] as num?)?.toInt() ?? 1,
+      text: json['text'] as String? ?? '',
+      savedAt: (json['savedAt'] as num?)?.toInt() ?? 0,
+    );
+  }
 }

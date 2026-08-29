@@ -17,6 +17,7 @@ import 'features/admin/views/church_requests_admin_view.dart';
 import 'features/bible/views/bible_home_view.dart';
 import 'features/bible/views/bible_image_creator_view.dart';
 import 'features/bible/views/bible_reader_view.dart';
+import 'features/bible/views/bible_saved_view.dart';
 import 'features/events/providers/church_admin_provider.dart';
 import 'features/events/providers/events_provider.dart';
 import 'features/events/views/events_view.dart';
@@ -115,6 +116,7 @@ class _KairoAppState extends State<KairoApp> {
         GoRoute(path: '/settings', builder: (_, __) => const SettingsView()),
         GoRoute(path: '/events', builder: (_, __) => const EventsView()),
         GoRoute(path: '/bible', builder: (_, __) => const BibleHomeView()),
+        GoRoute(path: '/bible/saved', builder: (_, __) => const BibleSavedView()),
         GoRoute(
           path: '/bible/read/:bookId',
           builder: (context, state) => BibleReaderView(

@@ -81,13 +81,13 @@ class _BibleHomeViewState extends State<BibleHomeView> {
       padding: EdgeInsets.fromLTRB(8, top + 4, 16, 8),
       child: Column(
         children: [
-          const Row(
+          Row(
             children: [
-              BibleBackButton(),
-              SizedBox(width: 8),
-              Icon(Icons.menu_book_rounded, color: KairoColors.primary400, size: 26),
-              SizedBox(width: 8),
-              Expanded(
+              const BibleBackButton(),
+              const SizedBox(width: 8),
+              const Icon(Icons.menu_book_rounded, color: KairoColors.primary400, size: 26),
+              const SizedBox(width: 8),
+              const Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -102,6 +102,12 @@ class _BibleHomeViewState extends State<BibleHomeView> {
                   ],
                 ),
               ),
+              IconButton(
+                tooltip: 'Versículos guardados',
+                onPressed: () => context.push('/bible/saved'),
+                style: IconButton.styleFrom(backgroundColor: KairoColors.darkHover),
+                icon: const Icon(Icons.bookmark_rounded, color: KairoColors.primary400),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -109,6 +115,31 @@ class _BibleHomeViewState extends State<BibleHomeView> {
             controller: _search,
             onChanged: (_) => setState(() {}),
             onSubmitted: _onSearchSubmitted,
+          ),
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: () => context.push('/bible/saved'),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: KairoColors.darkCard,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.bookmark_outline, color: KairoColors.primary400, size: 20),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Versículos guardados',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, color: KairoColors.darkTextSecondary),
+                ],
+              ),
+            ),
           ),
         ],
       ),
