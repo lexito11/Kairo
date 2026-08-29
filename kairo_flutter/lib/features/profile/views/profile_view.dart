@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/post.dart';
 import '../../../core/services/prefs_service.dart';
+import '../../../core/services/storage_service.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../core/widgets/kairo_avatar.dart';
 import '../../../core/widgets/main_scaffold.dart';
@@ -34,6 +36,7 @@ class _ProfileViewState extends State<ProfileView> {
   String _tab = 'publicaciones';
   bool _loading = true;
   bool _followLoading = false;
+  bool _changingPhoto = false;
 
   String? get _viewedUserId => widget.userId ?? AuthService().currentUser?.id;
   bool get _isOwner => widget.userId == null || widget.userId == AuthService().currentUser?.id;
@@ -83,6 +86,92 @@ class _ProfileViewState extends State<ProfileView> {
     }
     final posts = await _postsRepo.fetchPostsByIds(ids);
     setState(() => _savedPosts = posts);
+  }
+
+  Future<void> _changePhoto() async {
+    if (!_isOwner || _changingPhoto) return;
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (file == null) return;
+    setState(() => _changingPhoto = true);
+    try {
+      final bytes = await file.readAsBytes();
+      final url = await StorageService().uploadBytes(
+        bytes: bytes,
+        fileName: file.name,
+        mimeType: 'image/jpeg',
+        subfolder: 'avatars',
+      );
+      await _usersRepo.updateProfile(image: url);
+      if (!mounted) return;
+      final current = _profile;
+      if (current != null) {
+        setState(() => _profile = current.copyWith(user: current.user.copyWith(image: url)));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo actualizar la foto de perfil')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _changingPhoto = false);
+    }
+  }
+
+  Widget _profileAvatar() {
+    final user = _profile?.user;
+    final name = user?.displayName ?? 'Usuario';
+    final hasMood = (user?.mood ?? '').trim().isNotEmpty;
+    final avatar = KairoAvatar(imageUrl: user?.image, name: name, size: 88);
+
+    Widget photo = avatar;
+    if (hasMood) {
+      photo = Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: KairoColors.primary500, width: 2.5),
+        ),
+        child: avatar,
+      );
+    }
+
+    if (!_isOwner) return photo;
+
+    return GestureDetector(
+      onTap: _changingPhoto ? null : _changePhoto,
+      child: SizedBox(
+        width: hasMood ? 104 : 96,
+        height: hasMood ? 104 : 96,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            photo,
+            if (_changingPhoto)
+              const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 2, color: KairoColors.primary400),
+              ),
+            Positioned(
+              right: 0,
+              bottom: 2,
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: KairoColors.primary500,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: KairoColors.darkBg, width: 2),
+                ),
+                child: const Icon(Icons.add, color: Colors.white, size: 18),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _toggleFollow() async {
@@ -182,9 +271,13 @@ class _ProfileViewState extends State<ProfileView> {
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    KairoAvatar(imageUrl: user?.image, name: user?.displayName, size: 88),
+                    _profileAvatar(),
                     const SizedBox(height: 12),
-                    Text(user?.displayName ?? '', style: const TextStyle(color: KairoColors.darkText, fontSize: 22, fontWeight: FontWeight.bold)),
+                    Text(
+                      user?.displayName ?? 'Usuario',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: KairoColors.darkText, fontSize: 22, fontWeight: FontWeight.bold),
+                    ),
                     if (user?.username != null)
                       Text('@${user!.username}', style: const TextStyle(color: KairoColors.darkTextSecondary)),
                     if (user?.bio != null && user!.bio!.isNotEmpty) ...[
@@ -202,7 +295,16 @@ class _ProfileViewState extends State<ProfileView> {
                     ),
                     if (_isOwner) ...[
                       const SizedBox(height: 20),
-                      FeelingsSelector(currentMood: user?.mood),
+                      FeelingsSelector(
+                        currentMood: user?.mood,
+                        onChanged: (mood) {
+                          final current = _profile;
+                          if (current == null) return;
+                          setState(() {
+                            _profile = current.copyWith(user: current.user.copyWith(mood: mood));
+                          });
+                        },
+                      ),
                     ],
                     const SizedBox(height: 16),
                     if (!_isOwner && _profile != null)

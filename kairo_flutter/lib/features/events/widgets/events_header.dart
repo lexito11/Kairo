@@ -45,6 +45,18 @@ class _ScopeTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
+        IconButton(
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/feed');
+            }
+          },
+          style: IconButton.styleFrom(backgroundColor: KairoColors.darkHover),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+        ),
+        const SizedBox(width: 12),
         _ScopeTab(
           label: 'Cristianos',
           active: provider.eventScope == EventScope.cristianos,

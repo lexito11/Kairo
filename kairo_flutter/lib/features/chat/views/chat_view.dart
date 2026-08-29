@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/constants/chat_limits.dart';
 import '../../../core/models/chat_group.dart';
 import '../../../core/models/message.dart';
+import '../../../core/navigation/app_route_observer.dart';
 import '../../../core/services/prefs_service.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../core/widgets/kairo_avatar.dart';
 import '../../../core/widgets/main_scaffold.dart';
+import '../../../features/auth/services/auth_service.dart';
 import '../widgets/create_group_sheet.dart';
 import '../widgets/new_message_sheet.dart';
 import '../../messages/services/groups_repository.dart';
@@ -22,7 +25,7 @@ class ChatView extends StatefulWidget {
   State<ChatView> createState() => _ChatViewState();
 }
 
-class _ChatViewState extends State<ChatView> {
+class _ChatViewState extends State<ChatView> with RouteAware {
   final _repo = MessagesRepository();
   final _groupsRepo = GroupsRepository();
   final _prefs = PrefsService();
@@ -36,21 +39,44 @@ class _ChatViewState extends State<ChatView> {
   _ChatFilter _filter = _ChatFilter.all;
   _GroupsSection _groupsSection = _GroupsSection.mine;
   bool _loading = true;
+  bool _subscribed = false;
+  RealtimeChannel? _channel;
 
   @override
   void initState() {
     super.initState();
     _load();
+    if (AuthService().isSignedIn) {
+      _channel = _repo.subscribeToMessages(_onIncomingMessage);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_subscribed) return;
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      appRouteObserver.subscribe(this, route);
+      _subscribed = true;
+    }
+  }
+
+  @override
+  void didPopNext() {
+    _load(showSpinner: false);
   }
 
   @override
   void dispose() {
+    if (_subscribed) appRouteObserver.unsubscribe(this);
+    _channel?.unsubscribe();
     _search.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool showSpinner = true}) async {
+    if (showSpinner) setState(() => _loading = true);
     try {
       final pinned = await _prefs.getPinnedChatIds();
       final list = await _repo.fetchConversations();
@@ -104,7 +130,42 @@ class _ChatViewState extends State<ChatView> {
         return name.contains(q) || preview.contains(q);
       });
     }
-    return list.toList();
+    final result = list.toList();
+    result.sort((a, b) => b.lastMessage.createdAt.compareTo(a.lastMessage.createdAt));
+    return result;
+  }
+
+  void _onIncomingMessage(ChatMessage msg) {
+    if (!mounted) return;
+    final uid = AuthService().currentUser?.id;
+    if (uid == null || msg.receiverId != uid) return;
+
+    final i = _conversations.indexWhere((c) => c.otherUser.id == msg.senderId);
+    if (i < 0) {
+      _load(showSpinner: false);
+      return;
+    }
+    setState(() {
+      final updated = _conversations[i].copyWith(
+        lastMessage: msg,
+        unreadCount: _conversations[i].unreadCount + 1,
+      );
+      _conversations = [
+        updated,
+        ..._conversations.where((c) => c.otherUser.id != msg.senderId),
+      ];
+    });
+  }
+
+  void _clearUnread(String otherUserId) {
+    final i = _conversations.indexWhere((c) => c.otherUser.id == otherUserId);
+    if (i < 0 || _conversations[i].unreadCount == 0) return;
+    setState(() {
+      _conversations = [
+        for (final c in _conversations)
+          if (c.otherUser.id == otherUserId) c.copyWith(unreadCount: 0) else c,
+      ];
+    });
   }
 
   List<Conversation> get _pinnedSection =>
@@ -434,10 +495,12 @@ class _ChatViewState extends State<ChatView> {
   Future<void> _composeNewMessage() async {
     final user = await showNewMessageSheet(context);
     if (user == null || !mounted) return;
+    _clearUnread(user.id);
     context.push('/chat/${user.id}?name=${Uri.encodeComponent(user.displayName)}');
   }
 
   void _openThread(Conversation c) {
+    _clearUnread(c.otherUser.id);
     context.push(
       '/chat/${c.otherUser.id}?name=${Uri.encodeComponent(c.otherUser.displayName)}',
     );

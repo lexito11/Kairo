@@ -166,6 +166,7 @@ class _DenominationSelectorState extends State<DenominationSelector> {
                         left: 0,
                         child: IconButton(
                           onPressed: widget.onBack,
+                          style: IconButton.styleFrom(backgroundColor: KairoColors.darkHover),
                           icon: const Icon(Icons.arrow_back, color: Colors.white),
                         ),
                       ),

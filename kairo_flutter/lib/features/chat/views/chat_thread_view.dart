@@ -39,6 +39,7 @@ class _ChatThreadViewState extends State<ChatThreadView> {
     _channel = _repo.subscribeToMessages((msg) {
       if (msg.senderId == widget.otherUserId && mounted) {
         setState(() => _messages = [..._messages, msg]);
+        _repo.markThreadRead(widget.otherUserId);
         _scrollToEnd();
       }
     });

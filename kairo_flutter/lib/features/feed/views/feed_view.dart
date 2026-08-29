@@ -258,6 +258,17 @@ class _FeedHeader extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                tooltip: 'Biblia',
+                icon: const Icon(Icons.menu_book_rounded, color: KairoColors.primary400, size: 22),
+                onPressed: () {
+                  FeedPlaybackFocusManager.instance.pauseAll();
+                  context.push('/bible');
+                },
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
                 icon: const Icon(Icons.calendar_month_outlined, color: KairoColors.darkText, size: 22),
                 onPressed: () {
                   FeedPlaybackFocusManager.instance.pauseAll();

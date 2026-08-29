@@ -47,7 +47,7 @@ class EventDetailModal extends StatelessWidget {
                         child: IconButton(
                           onPressed: () => context.read<EventsProvider>().closeEvent(),
                           style: IconButton.styleFrom(backgroundColor: Colors.black54),
-                          icon: const Icon(Icons.close, color: Colors.white),
+                          icon: const Icon(Icons.arrow_back, color: Colors.white),
                         ),
                       ),
                     ],
@@ -177,7 +177,7 @@ class EventsFilterPanel extends StatelessWidget {
                         IconButton(
                           onPressed: () => provider.setShowFilterPanel(false),
                           style: IconButton.styleFrom(backgroundColor: KairoColors.darkHover),
-                          icon: const Icon(Icons.close, color: KairoColors.darkTextSecondary),
+                          icon: const Icon(Icons.arrow_back, color: Colors.white),
                         ),
                       ],
                     ),
@@ -383,7 +383,7 @@ class _ChurchRegistrationModalState extends State<ChurchRegistrationModal> {
                         IconButton(
                           onPressed: () => provider.setShowChurchRegistration(false),
                           style: IconButton.styleFrom(backgroundColor: KairoColors.darkHover),
-                          icon: const Icon(Icons.close, color: KairoColors.darkTextSecondary),
+                          icon: const Icon(Icons.arrow_back, color: Colors.white),
                         ),
                       ],
                     ),
@@ -935,7 +935,7 @@ class EventRequestModal extends StatelessWidget {
                           IconButton(
                             onPressed: () => provider.setShowEventRequestForm(false),
                             style: IconButton.styleFrom(backgroundColor: KairoColors.darkHover),
-                            icon: const Icon(Icons.close, color: KairoColors.darkTextSecondary),
+                            icon: const Icon(Icons.arrow_back, color: Colors.white),
                           ),
                         ],
                       ),
@@ -1096,7 +1096,7 @@ class SimpleInfoModal extends StatelessWidget {
                       IconButton(
                         onPressed: onClose,
                         style: IconButton.styleFrom(backgroundColor: KairoColors.darkHover),
-                        icon: const Icon(Icons.close, color: KairoColors.darkTextSecondary),
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
                       ),
                     ],
                   ),

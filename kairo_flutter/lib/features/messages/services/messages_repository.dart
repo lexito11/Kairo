@@ -42,13 +42,27 @@ class MessagesRepository {
       for (final u in users as List) (u as Map)['id'] as String: KairoUser.fromJson(u as Map<String, dynamic>),
     };
 
-    return byOther.entries.map((e) {
+    final list = byOther.entries.map((e) {
       return Conversation(
         otherUser: userMap[e.key] ?? KairoUser(id: e.key, email: ''),
         lastMessage: e.value,
         unreadCount: unread[e.key] ?? 0,
       );
-    }).toList();
+    }).toList()
+      ..sort((a, b) => b.lastMessage.createdAt.compareTo(a.lastMessage.createdAt));
+
+    return list;
+  }
+
+  Future<void> markThreadRead(String otherUserId) async {
+    final uid = _userId;
+    if (uid == null) return;
+    await _client
+        .from('messages')
+        .update({'read_at': DateTime.now().toIso8601String()})
+        .eq('receiver_id', uid)
+        .eq('sender_id', otherUserId)
+        .isFilter('read_at', null);
   }
 
   Future<List<ChatMessage>> fetchThread(String otherUserId) async {
@@ -61,12 +75,7 @@ class MessagesRepository {
         .or('and(sender_id.eq.$uid,receiver_id.eq.$otherUserId),and(sender_id.eq.$otherUserId,receiver_id.eq.$uid)')
         .order('created_at', ascending: true);
 
-    await _client
-        .from('messages')
-        .update({'read_at': DateTime.now().toIso8601String()})
-        .eq('receiver_id', uid)
-        .eq('sender_id', otherUserId)
-        .isFilter('read_at', null);
+    await markThreadRead(otherUserId);
 
     return (rows as List).map((r) => ChatMessage.fromJson(r as Map<String, dynamic>)).toList();
   }

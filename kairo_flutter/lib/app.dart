@@ -14,6 +14,9 @@ import 'features/chat/views/chat_thread_view.dart';
 import 'features/chat/views/chat_view.dart';
 import 'features/chat/views/group_thread_view.dart';
 import 'features/admin/views/church_requests_admin_view.dart';
+import 'features/bible/views/bible_home_view.dart';
+import 'features/bible/views/bible_image_creator_view.dart';
+import 'features/bible/views/bible_reader_view.dart';
 import 'features/events/providers/church_admin_provider.dart';
 import 'features/events/providers/events_provider.dart';
 import 'features/events/views/events_view.dart';
@@ -53,7 +56,15 @@ class _KairoAppState extends State<KairoApp> {
         final loggedIn = AuthService().isSignedIn;
         final path = state.matchedLocation;
         final isAuth = path.startsWith('/auth');
-        final isPublic = path == '/' || path == '/feed' || path == '/videos' || path == '/events' || path == '/live' || path.startsWith('/live/') || path.startsWith('/profile');
+        final isPublic = path == '/' ||
+            path == '/feed' ||
+            path == '/videos' ||
+            path == '/events' ||
+            path == '/live' ||
+            path.startsWith('/live/') ||
+            path.startsWith('/profile') ||
+            path == '/bible' ||
+            path.startsWith('/bible/');
 
         if (path == '/live/go' && !loggedIn) return '/auth/signin';
         if (path == '/feed/create' && !loggedIn) return '/auth/signin';
@@ -103,6 +114,22 @@ class _KairoAppState extends State<KairoApp> {
         GoRoute(path: '/personas', builder: (_, __) => const PersonasView()),
         GoRoute(path: '/settings', builder: (_, __) => const SettingsView()),
         GoRoute(path: '/events', builder: (_, __) => const EventsView()),
+        GoRoute(path: '/bible', builder: (_, __) => const BibleHomeView()),
+        GoRoute(
+          path: '/bible/read/:bookId',
+          builder: (context, state) => BibleReaderView(
+            bookId: state.pathParameters['bookId']!,
+            chapter: int.tryParse(state.uri.queryParameters['chapter'] ?? '1') ?? 1,
+            initialVerse: int.tryParse(state.uri.queryParameters['verse'] ?? '1') ?? 1,
+          ),
+        ),
+        GoRoute(
+          path: '/bible/image',
+          builder: (context, state) => BibleImageCreatorView(
+            initialText: state.uri.queryParameters['text'] ?? '',
+            initialRef: state.uri.queryParameters['ref'] ?? '',
+          ),
+        ),
         GoRoute(path: '/live', builder: (_, __) => const LiveListView()),
         GoRoute(path: '/live/go', builder: (_, __) => const GoLiveView()),
         GoRoute(

@@ -32,6 +32,14 @@ class _FeelingsSelectorState extends State<FeelingsSelector> {
     _selected = widget.currentMood;
   }
 
+  @override
+  void didUpdateWidget(covariant FeelingsSelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentMood != widget.currentMood) {
+      _selected = widget.currentMood;
+    }
+  }
+
   Future<void> _pick(String emoji, String label) async {
     final value = '$emoji $label';
     setState(() { _selected = value; _saving = true; });

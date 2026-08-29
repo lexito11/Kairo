@@ -41,7 +41,7 @@ class KairoBottomNavigation extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [

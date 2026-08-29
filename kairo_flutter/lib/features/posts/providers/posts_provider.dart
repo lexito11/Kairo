@@ -141,12 +141,15 @@ class PostsProvider extends ChangeNotifier {
     required String content,
     PostKind postKind = PostKind.post,
     List<({Uint8List bytes, String name, String mime})>? files,
-  }) {
-    return _repo.createPost(
+  }) async {
+    final post = await _repo.createPost(
       content: content,
       postKind: postKind,
       files: files,
     );
+    _posts.insert(0, post);
+    notifyListeners();
+    return post;
   }
 
   Future<void> toggleIntercede(String postId) async {

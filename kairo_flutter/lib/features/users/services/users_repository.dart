@@ -15,6 +15,16 @@ class UserProfileData {
   final int teAgregaron;
   final bool viewerHasAdded;
   final int friendsCount;
+
+  UserProfileData copyWith({KairoUser? user}) {
+    return UserProfileData(
+      user: user ?? this.user,
+      agregados: agregados,
+      teAgregaron: teAgregaron,
+      viewerHasAdded: viewerHasAdded,
+      friendsCount: friendsCount,
+    );
+  }
 }
 
 class FollowNotification {

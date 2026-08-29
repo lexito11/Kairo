@@ -52,4 +52,15 @@ class Conversation {
   final KairoUser otherUser;
   final ChatMessage lastMessage;
   final int unreadCount;
+
+  Conversation copyWith({
+    ChatMessage? lastMessage,
+    int? unreadCount,
+  }) {
+    return Conversation(
+      otherUser: otherUser,
+      lastMessage: lastMessage ?? this.lastMessage,
+      unreadCount: unreadCount ?? this.unreadCount,
+    );
+  }
 }

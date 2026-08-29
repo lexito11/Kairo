@@ -19,7 +19,34 @@ class KairoUser {
   final String? mood;
   final DateTime? createdAt;
 
-  String get displayName => name ?? username ?? 'Usuario';
+  String get displayName {
+    final n = name?.trim();
+    if (n != null && n.isNotEmpty) return n;
+    final u = username?.trim();
+    if (u != null && u.isNotEmpty) return u;
+    final fromEmail = email.contains('@') ? email.split('@').first.trim() : email.trim();
+    if (fromEmail.isNotEmpty) return fromEmail;
+    return 'Usuario';
+  }
+
+  KairoUser copyWith({
+    String? name,
+    String? username,
+    String? image,
+    String? bio,
+    String? mood,
+  }) {
+    return KairoUser(
+      id: id,
+      email: email,
+      name: name ?? this.name,
+      username: username ?? this.username,
+      image: image ?? this.image,
+      bio: bio ?? this.bio,
+      mood: mood ?? this.mood,
+      createdAt: createdAt,
+    );
+  }
   String get handle => username != null ? '@$username' : '';
 
   Map<String, dynamic> toJson() => {
