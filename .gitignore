@@ -15,6 +15,9 @@ kairo_flutter/*.iml
 .DS_Store
 Thumbs.db
 
+# Editor (local)
+.vscode/
+
 # Crash / debug artifacts (local only, not app code)
 *.stackdump
 hs_err_pid*.log

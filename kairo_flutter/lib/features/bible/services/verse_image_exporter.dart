@@ -4,24 +4,26 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-enum VerseTextFill { none, dark, light }
+import '../../../core/theme/kairo_layout.dart';
 
 class VerseTextLook {
   const VerseTextLook({
     required this.color,
+    required this.strokeColor,
     required this.align,
     required this.fontSize,
     this.fontId = 'sans',
-    this.fill = VerseTextFill.none,
-    this.stroke = false,
+    this.strokeWidth = 0,
+    this.shadow = true,
   });
 
   final Color color;
+  final Color strokeColor;
   final TextAlign align;
   final double fontSize;
   final String fontId;
-  final VerseTextFill fill;
-  final bool stroke;
+  final double strokeWidth;
+  final bool shadow;
 
   String? get fontFamily => switch (fontId) {
         'serif' => 'serif',
@@ -31,13 +33,11 @@ class VerseTextLook {
 
   FontStyle get fontStyle => fontId == 'script' ? FontStyle.italic : FontStyle.normal;
 
-  Color get strokeColor => color.computeLuminance() > 0.55 ? const Color(0xFF111111) : Colors.white;
+  bool get hasStroke => strokeWidth > 0.35;
 
-  Color get fillColor => switch (fill) {
-        VerseTextFill.dark => const Color(0xCC111111),
-        VerseTextFill.light => const Color(0xD9F8FAFC),
-        VerseTextFill.none => Colors.transparent,
-      };
+  List<Shadow> get letterShadows => shadow
+      ? [Shadow(blurRadius: 6, color: Colors.black.withValues(alpha: 0.45), offset: const Offset(0, 1))]
+      : const [];
 
   TextStyle verseStyle({double scale = 1, bool placeholder = false}) {
     return TextStyle(
@@ -45,28 +45,105 @@ class VerseTextLook {
       fontSize: fontSize * scale,
       fontFamily: fontFamily,
       fontStyle: placeholder ? FontStyle.italic : fontStyle,
-      fontWeight: FontWeight.w600,
-      height: 1.35,
-      shadows: fill == VerseTextFill.none
-          ? [Shadow(blurRadius: 10 * scale, color: Colors.black.withValues(alpha: 0.55))]
-          : const [],
+      fontWeight: FontWeight.w700,
+      height: 1.28,
+      shadows: [
+        for (final s in letterShadows)
+          Shadow(
+            blurRadius: s.blurRadius * scale,
+            color: s.color,
+            offset: Offset(s.offset.dx * scale, s.offset.dy * scale),
+          ),
+      ],
     );
   }
 
   TextStyle citationStyle({double scale = 1}) {
     return verseStyle(scale: scale).copyWith(
       fontSize: (fontSize * 0.62).clamp(11, 16) * scale,
-      color: color.withValues(alpha: 0.88),
-      fontWeight: FontWeight.w600,
+      color: color.withValues(alpha: 0.92),
     );
+  }
+
+  VerseTextLook atSize(double size) {
+    return VerseTextLook(
+      color: color,
+      strokeColor: strokeColor,
+      align: align,
+      fontSize: size,
+      fontId: fontId,
+      strokeWidth: strokeWidth,
+      shadow: shadow,
+    );
+  }
+
+  Size measureBlock({
+    required String verse,
+    required String citation,
+    required double maxWidth,
+  }) {
+    final extra = (hasStroke ? strokeWidth : 0) + (shadow ? 8 : 0);
+    final versePainter = TextPainter(
+      text: TextSpan(text: verse, style: verseStyle()),
+      textAlign: align,
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: maxWidth);
+    var width = versePainter.width;
+    var height = versePainter.height;
+    if (citation.isNotEmpty) {
+      final citationPainter = TextPainter(
+        text: TextSpan(text: citation, style: citationStyle()),
+        textAlign: align,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: maxWidth);
+      width = width > citationPainter.width ? width : citationPainter.width;
+      height += 10 + citationPainter.height;
+    }
+    return Size(width + extra, height + extra);
+  }
+
+  bool fitsIn({
+    required String verse,
+    required String citation,
+    required Size inner,
+  }) {
+    if (inner.width <= 0 || inner.height <= 0) return true;
+    final size = measureBlock(verse: verse, citation: citation, maxWidth: inner.width);
+    return size.height <= inner.height && size.width <= inner.width;
+  }
+
+  double maxSizeFor({
+    required String verse,
+    required String citation,
+    required Size inner,
+    double minSize = 12,
+    double hardMax = 32,
+  }) {
+    if (inner.width <= 0 || inner.height <= 0) return hardMax;
+    if (!atSize(minSize).fitsIn(verse: verse, citation: citation, inner: inner)) {
+      return minSize;
+    }
+    var lo = minSize;
+    var hi = hardMax;
+    var best = minSize;
+    for (var i = 0; i < 14; i++) {
+      final mid = (lo + hi) / 2;
+      if (atSize(mid).fitsIn(verse: verse, citation: citation, inner: inner)) {
+        best = mid;
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    return best;
   }
 }
 
 class VerseImageExporter {
   VerseImageExporter._();
 
-  static const exportWidth = 1080.0;
-  static const exportHeight = 1920.0;
+  static const exportWidth = KairoLayout.feedImageExportWidth;
+  static const exportHeight = KairoLayout.feedImageExportHeight;
 
   static Future<Uint8List> downloadBytes(String url) async {
     final res = await http
@@ -87,7 +164,7 @@ class VerseImageExporter {
     String watermark = 'KAIRO',
     String? photographer,
   }) async {
-    final scale = exportWidth / (sourceWidth <= 0 ? 220 : sourceWidth);
+    final scale = exportWidth / (sourceWidth <= 0 ? 320 : sourceWidth);
     final codec = await ui.instantiateImageCodec(
       backgroundBytes,
       targetWidth: exportWidth.toInt(),
@@ -104,11 +181,6 @@ class VerseImageExporter {
     final inputRect = Alignment.center.inscribe(fitted.source, Offset.zero & srcSize);
     final outputRect = Alignment.center.inscribe(fitted.destination, Offset.zero & dst);
     canvas.drawImageRect(bg, inputRect, outputRect, Paint()..filterQuality = FilterQuality.high);
-
-    final overlay = look.color.computeLuminance() > 0.5
-        ? const Color(0x59000000)
-        : const Color(0x3DFFFFFF);
-    canvas.drawRect(Offset.zero & dst, Paint()..color = overlay);
 
     final padding = 28 * scale;
     final maxWidth = exportWidth - padding * 2;
@@ -144,32 +216,15 @@ class VerseImageExporter {
       )..layout(maxWidth: maxWidth);
     }
 
-    final gap = citationPainter == null ? 0.0 : 14 * scale;
+    final gap = citationPainter == null ? 0.0 : 12 * scale;
     final blockHeight = versePainter.height + gap + (citationPainter?.height ?? 0);
-    final blockWidth = [
-      versePainter.width,
-      citationPainter?.width ?? 0,
-    ].reduce((a, b) => a > b ? a : b);
     var y = (exportHeight - blockHeight) / 2;
 
-    if (look.fill != VerseTextFill.none) {
-      final rectPad = 16 * scale;
-      final left = switch (look.align) {
-        TextAlign.right || TextAlign.end => padding + maxWidth - blockWidth - rectPad,
-        TextAlign.center || TextAlign.justify => padding + (maxWidth - blockWidth) / 2 - rectPad,
-        _ => padding - rectPad,
-      };
-      final rrect = RRect.fromRectAndRadius(
-        Rect.fromLTWH(left, y - rectPad, blockWidth + rectPad * 2, blockHeight + rectPad * 2),
-        Radius.circular(14 * scale),
-      );
-      canvas.drawRRect(rrect, Paint()..color = look.fillColor);
-    }
-
-    if (look.stroke) {
+    if (look.hasStroke) {
       final strokePaint = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.2 * scale
+        ..strokeWidth = look.strokeWidth * scale
+        ..strokeJoin = StrokeJoin.round
         ..color = look.strokeColor;
       final verseStroke = TextPainter(
         text: verseSpan(strokePaint),
@@ -197,7 +252,7 @@ class VerseImageExporter {
       text: TextSpan(
         text: watermark,
         style: TextStyle(
-          color: look.color.withValues(alpha: 0.7),
+          color: Colors.white70,
           fontSize: 11 * scale,
           fontWeight: FontWeight.w800,
           letterSpacing: 1.1,
@@ -212,7 +267,7 @@ class VerseImageExporter {
         text: TextSpan(
           text: photographer,
           style: TextStyle(
-            color: look.color.withValues(alpha: 0.55),
+            color: Colors.white60,
             fontSize: 10 * scale,
             fontWeight: FontWeight.w500,
           ),

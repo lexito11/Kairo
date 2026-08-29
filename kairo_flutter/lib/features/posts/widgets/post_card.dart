@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../../../core/models/post.dart';
 import '../../../core/models/kairo_user.dart';
 import '../../../core/theme/kairo_colors.dart';
+import '../../../core/theme/kairo_layout.dart';
 import '../../../core/utils/format_time_ago.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../core/utils/responsive.dart';
@@ -311,8 +312,8 @@ class _PostCardState extends State<PostCard> {
 
 // ─── Feed: recorte uniforme 4:5 → detalle con ratio real + Hero ───────────
 
-/// Ratio fijo del feed (estilo Instagram): tarjetas uniformes con recorte leve.
-const _kFeedDisplayAspectRatio = 4 / 5;
+/// Ratio fijo del recuadro de imagen en el feed (estilo Instagram 4:5).
+const _kFeedDisplayAspectRatio = KairoLayout.feedImageAspectRatio;
 
 String _feedMediaHeroTag(String postId) => 'feed_media_$postId';
 
