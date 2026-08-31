@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../core/models/post.dart';
 import '../../../core/services/prefs_service.dart';
 import '../../../core/services/storage_service.dart';
@@ -57,6 +58,7 @@ class _ProfileViewState extends State<ProfileView> {
     try {
       final profile = await _usersRepo.getUserProfile(uid);
       final posts = await _postsRepo.fetchUserPosts(uid);
+      var saved = <Post>[];
       if (_isOwner) {
         final summary = await _usersRepo.getSocialSummary();
         if (mounted) {
@@ -65,11 +67,14 @@ class _ProfileViewState extends State<ProfileView> {
                 friends: summary.friendsCount,
               );
         }
+        final ids = await _prefs.getSavedPostIds();
+        if (ids.isNotEmpty) saved = await _postsRepo.fetchPostsByIds(ids);
       }
       if (mounted) {
         setState(() {
           _profile = profile;
           _posts = posts;
+          if (_isOwner) _savedPosts = saved;
           _loading = false;
         });
       }
@@ -122,7 +127,7 @@ class _ProfileViewState extends State<ProfileView> {
     final user = _profile?.user;
     final name = user?.displayName ?? 'Usuario';
     final hasMood = (user?.mood ?? '').trim().isNotEmpty;
-    final avatar = KairoAvatar(imageUrl: user?.image, name: name, size: 88);
+    final avatar = KairoAvatar(imageUrl: user?.image, name: name, size: 96);
 
     Widget photo = avatar;
     if (hasMood) {
@@ -141,8 +146,8 @@ class _ProfileViewState extends State<ProfileView> {
     return GestureDetector(
       onTap: _changingPhoto ? null : _changePhoto,
       child: SizedBox(
-        width: hasMood ? 104 : 96,
-        height: hasMood ? 104 : 96,
+        width: hasMood ? 112 : 104,
+        height: hasMood ? 112 : 104,
         child: Stack(
           clipBehavior: Clip.none,
           alignment: Alignment.center,
@@ -202,6 +207,128 @@ class _ProfileViewState extends State<ProfileView> {
     setState(() => _posts.removeWhere((p) => p.id == postId));
   }
 
+  Future<void> _shareProfile() async {
+    final user = _profile?.user;
+    if (user == null) return;
+    final origin = Uri.base.origin;
+    final link = origin.isNotEmpty && origin != 'about:blank'
+        ? '$origin/profile?userId=${user.id}'
+        : 'kairo://profile/${user.id}';
+    await SharePlus.instance.share(
+      ShareParams(text: '${user.displayName} en KAIRO\n$link', subject: 'KAIRO'),
+    );
+  }
+
+  Future<void> _editProfile() async {
+    final user = _profile?.user;
+    if (user == null) return;
+    final name = TextEditingController(text: user.name ?? '');
+    final username = TextEditingController(text: user.username ?? '');
+    final bio = TextEditingController(text: user.bio ?? '');
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: KairoColors.darkCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 16, 20, 20 + MediaQuery.viewInsetsOf(ctx).bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Editar perfil', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              _editField(name, 'Nombre'),
+              const SizedBox(height: 10),
+              _editField(username, 'Usuario'),
+              const SizedBox(height: 10),
+              _editField(bio, 'Biografía', maxLines: 3),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 44,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: KairoColors.primary500,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Guardar'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (saved != true) {
+      name.dispose();
+      username.dispose();
+      bio.dispose();
+      return;
+    }
+    try {
+      await _usersRepo.updateProfile(
+        name: name.text.trim(),
+        username: username.text.trim(),
+        bio: bio.text.trim(),
+      );
+      if (!mounted) return;
+      final current = _profile;
+      if (current != null) {
+        setState(() {
+          _profile = current.copyWith(
+            user: current.user.copyWith(
+              name: name.text.trim(),
+              username: username.text.trim(),
+              bio: bio.text.trim(),
+            ),
+          );
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo guardar el perfil')),
+        );
+      }
+    } finally {
+      name.dispose();
+      username.dispose();
+      bio.dispose();
+    }
+  }
+
+  TextField _editField(TextEditingController controller, String hint, {int maxLines = 1}) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: KairoColors.darkTextSecondary),
+        filled: true,
+        fillColor: KairoColors.darkBg,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: KairoColors.darkBorder),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: KairoColors.darkBorder),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: KairoColors.primary500),
+        ),
+      ),
+    );
+  }
+
   List<Post> get _displayPosts {
     switch (_tab) {
       case 'guardados':
@@ -245,14 +372,18 @@ class _ProfileViewState extends State<ProfileView> {
           slivers: [
             SliverAppBar(
               floating: true,
+              centerTitle: false,
               backgroundColor: KairoColors.darkBg,
-              title: Text(_isOwner ? 'Mi perfil' : user?.displayName ?? 'Perfil'),
+              title: Text(
+                _isOwner ? 'Mi perfil' : user?.displayName ?? 'Perfil',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+              ),
               actions: [
                 if (_isOwner)
                   Stack(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.notifications_outlined),
+                        icon: const Icon(Icons.notifications_outlined, color: Colors.white),
                         onPressed: () => context.push('/notifications'),
                       ),
                       if ((context.watch<SocialSummaryProvider>().unreadCount) > 0)
@@ -263,38 +394,85 @@ class _ProfileViewState extends State<ProfileView> {
                     ],
                   ),
                 if (_isOwner)
-                  IconButton(icon: const Icon(Icons.settings_outlined), onPressed: () => context.push('/settings')),
+                  IconButton(
+                    icon: const Icon(Icons.settings_outlined, color: Colors.white),
+                    onPressed: () => context.push('/settings'),
+                  ),
               ],
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
                 child: Column(
                   children: [
                     _profileAvatar(),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
                     Text(
                       user?.displayName ?? 'Usuario',
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: KairoColors.darkText, fontSize: 22, fontWeight: FontWeight.bold),
                     ),
-                    if (user?.username != null)
-                      Text('@${user!.username}', style: const TextStyle(color: KairoColors.darkTextSecondary)),
+                    const SizedBox(height: 2),
+                    Text(
+                      user?.username != null && user!.username!.isNotEmpty
+                          ? '@${user.username}'
+                          : '@usuario',
+                      style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 14),
+                    ),
                     if (user?.bio != null && user!.bio!.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Text(user.bio!, textAlign: TextAlign.center, style: const TextStyle(color: KairoColors.darkTextSecondary)),
                     ],
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _Stat(label: 'Agregados', value: '${_profile?.agregados ?? 0}'),
-                        _Stat(label: 'Te agregaron', value: '${_profile?.teAgregaron ?? 0}'),
-                        if (_isOwner) _Stat(label: 'Amigos', value: '${_profile?.friendsCount ?? 0}'),
-                      ],
+                    const SizedBox(height: 22),
+                    _StatsRow(
+                      items: _isOwner
+                          ? [
+                              ('${_posts.length}', 'Publicaciones'),
+                              ('${_profile?.agregados ?? 0}', 'Agregados'),
+                              ('${_savedPosts.length}', 'Guardados'),
+                            ]
+                          : [
+                              ('${_posts.length}', 'Publicaciones'),
+                              ('${_profile?.agregados ?? 0}', 'Agregados'),
+                              ('${_profile?.teAgregaron ?? 0}', 'Te agregaron'),
+                            ],
                     ),
                     if (_isOwner) ...[
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 44,
+                              child: TextButton(
+                                onPressed: _editProfile,
+                                style: TextButton.styleFrom(
+                                  backgroundColor: KairoColors.darkCard,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                child: const Text('Editar perfil', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: TextButton(
+                              onPressed: _shareProfile,
+                              style: TextButton.styleFrom(
+                                backgroundColor: KairoColors.darkCard,
+                                foregroundColor: Colors.white,
+                                padding: EdgeInsets.zero,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: const Icon(Icons.share, size: 20),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 22),
                       FeelingsSelector(
                         currentMood: user?.mood,
                         onChanged: (mood) {
@@ -306,8 +484,8 @@ class _ProfileViewState extends State<ProfileView> {
                         },
                       ),
                     ],
-                    const SizedBox(height: 16),
-                    if (!_isOwner && _profile != null)
+                    if (!_isOwner && _profile != null) ...[
+                      const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
@@ -321,39 +499,75 @@ class _ProfileViewState extends State<ProfileView> {
                           child: Text(_profile!.viewerHasAdded ? 'Agregado' : 'Agregar'),
                         ),
                       ),
+                    ],
                   ],
                 ),
               ),
             ),
             SliverToBoxAdapter(
-              child: Row(
-                children: tabs.map((t) {
-                  final labels = {'publicaciones': 'Publicaciones', 'guardados': 'Guardados'};
-                  final active = _tab == t;
-                  return Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        setState(() => _tab = t);
-                        if (t == 'guardados') _loadSaved();
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          border: Border(bottom: BorderSide(color: active ? KairoColors.primary500 : Colors.transparent, width: 2)),
-                        ),
-                        child: Text(
-                          labels[t] ?? t,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: active ? KairoColors.primary400 : KairoColors.darkTextSecondary,
-                            fontWeight: active ? FontWeight.bold : FontWeight.normal,
-                            fontSize: 13,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Row(
+                  children: tabs.map((t) {
+                    final active = _tab == t;
+                    final isSaved = t == 'guardados';
+                    return Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() => _tab = t);
+                          if (t == 'guardados') _loadSaved();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            border: Border(
+                              top: const BorderSide(color: KairoColors.darkBorder),
+                              bottom: BorderSide(
+                                color: active ? Colors.white : Colors.transparent,
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                isSaved ? Icons.bookmark_border : Icons.grid_view_rounded,
+                                size: 16,
+                                color: active ? Colors.white : KairoColors.darkTextSecondary,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                isSaved ? 'Guardados' : 'Publicaciones',
+                                style: TextStyle(
+                                  color: active ? Colors.white : KairoColors.darkTextSecondary,
+                                  fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              if (isSaved && _savedPosts.isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  width: 18,
+                                  height: 18,
+                                  decoration: const BoxDecoration(
+                                    color: KairoColors.purple500,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    '${_savedPosts.length}',
+                                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ),
-                    ),
-                  );
-                }).toList(),
+                    );
+                  }).toList(),
+                ),
               ),
             ),
             SliverPadding(
@@ -396,17 +610,34 @@ class _ProfileViewState extends State<ProfileView> {
   }
 }
 
-class _Stat extends StatelessWidget {
-  const _Stat({required this.label, required this.value});
-  final String label;
-  final String value;
+class _StatsRow extends StatelessWidget {
+  const _StatsRow({required this.items});
+
+  final List<(String, String)> items;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Row(
       children: [
-        Text(value, style: const TextStyle(color: KairoColors.darkText, fontSize: 20, fontWeight: FontWeight.bold)),
-        Text(label, style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12)),
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0)
+            Container(width: 1, height: 28, color: KairoColors.darkBorder),
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  items[i].$1,
+                  style: const TextStyle(color: KairoColors.darkText, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  items[i].$2,
+                  style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
