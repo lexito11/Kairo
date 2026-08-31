@@ -10,6 +10,7 @@ import '../../posts/providers/posts_provider.dart';
 import '../../posts/widgets/comments_sheet.dart';
 import '../../posts/widgets/post_card.dart';
 import '../../posts/widgets/share_sheet.dart';
+import '../../bible/widgets/bible_icon.dart';
 import '../../events/widgets/events_today_section.dart';
 import '../../events/widgets/events_upcoming_section.dart';
 import '../../stories/widgets/stories_strip.dart';
@@ -254,42 +255,33 @@ class _FeedHeader extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+              _FeedHeaderButton(
                 tooltip: 'Biblia',
-                icon: const Icon(Icons.menu_book_rounded, color: KairoColors.primary400, size: 22),
+                icon: const BibleIcon(color: KairoColors.primary400, size: _feedHeaderIconSize),
                 onPressed: () {
                   FeedPlaybackFocusManager.instance.pauseAll();
                   context.push('/bible');
                 },
               ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
-                icon: const Icon(Icons.calendar_month_outlined, color: KairoColors.darkText, size: 22),
+              _FeedHeaderButton(
+                tooltip: 'Eventos',
+                icon: const _FeedHeaderGlyph(Icons.calendar_month_outlined, color: KairoColors.darkText),
                 onPressed: () {
                   FeedPlaybackFocusManager.instance.pauseAll();
                   context.push('/events');
                 },
               ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
-                icon: const Icon(Icons.live_tv_rounded, color: KairoColors.primary500, size: 22),
+              _FeedHeaderButton(
+                tooltip: 'En vivo',
+                icon: const _FeedHeaderGlyph(Icons.live_tv_rounded, color: KairoColors.primary500),
                 onPressed: () {
                   FeedPlaybackFocusManager.instance.pauseAll();
                   context.push('/live');
                 },
               ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
-                icon: const Icon(Icons.person_add, color: KairoColors.darkText, size: 22),
+              _FeedHeaderButton(
+                tooltip: 'Solicitudes',
+                icon: const _FeedHeaderGlyph(Icons.person_add, color: KairoColors.darkText),
                 onPressed: () {
                   FeedPlaybackFocusManager.instance.pauseAll();
                   context.push('/personas');
@@ -299,11 +291,9 @@ class _FeedHeader extends StatelessWidget {
                 Stack(
                   clipBehavior: Clip.none,
                   children: [
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
-                      icon: const Icon(Icons.notifications_outlined, color: KairoColors.darkText, size: 22),
+                    _FeedHeaderButton(
+                      tooltip: 'Notificaciones',
+                      icon: const _FeedHeaderGlyph(Icons.notifications_outlined, color: KairoColors.darkText),
                       onPressed: () {
                         FeedPlaybackFocusManager.instance.pauseAll();
                         context.push('/notifications');
@@ -324,6 +314,51 @@ class _FeedHeader extends StatelessWidget {
             ],
           ),
         ),
+    );
+  }
+}
+
+const _feedHeaderIconSize = 24.0;
+
+class _FeedHeaderButton extends StatelessWidget {
+  const _FeedHeaderButton({
+    required this.icon,
+    required this.onPressed,
+    this.tooltip,
+  });
+
+  final Widget icon;
+  final VoidCallback onPressed;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 38, height: 38),
+      iconSize: _feedHeaderIconSize,
+      tooltip: tooltip,
+      icon: icon,
+      onPressed: onPressed,
+    );
+  }
+}
+
+class _FeedHeaderGlyph extends StatelessWidget {
+  const _FeedHeaderGlyph(this.icon, {required this.color});
+
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: _feedHeaderIconSize,
+      child: FittedBox(
+        fit: BoxFit.contain,
+        child: Icon(icon, color: color, size: _feedHeaderIconSize),
+      ),
     );
   }
 }

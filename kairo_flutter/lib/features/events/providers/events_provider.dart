@@ -43,6 +43,7 @@ class EventsProvider extends ChangeNotifier {
   List<String> selectedChristianTypes = [];
   bool showLiveSectionInfo = false;
   bool showDenominationDropdown = false;
+  bool showDenominationChangeForm = false;
   ChurchFormData churchFormData = ChurchFormData.empty;
   EventRequestFormData eventRequestForm = EventRequestFormData.empty;
   bool churchSubmitting = false;
@@ -72,14 +73,17 @@ class EventsProvider extends ChangeNotifier {
     notifyListeners();
 
     final userId = AuthService().currentUser?.id;
-    if (userId != null) {
-      final saved = await _prefs.getDenomination(userId);
-      if (saved != null) {
-        selectedDenomination = saved;
-        showInitialSelector = false;
-      } else {
-        showInitialSelector = true;
+    final saved = await _prefs.getDenomination(userId);
+    if (saved != null && saved.isNotEmpty) {
+      selectedDenomination = saved;
+      showInitialSelector = false;
+      if (userId != null) {
+        await _prefs.setDenomination(userId, saved);
       }
+    } else {
+      showInitialSelector = userId != null;
+    }
+    if (userId != null) {
       await _refreshMyChurch();
     }
 
@@ -182,15 +186,8 @@ class EventsProvider extends ChangeNotifier {
 
   Future<void> handleDenominationSelect(String denomination) async {
     final userId = AuthService().currentUser?.id;
-    if (userId != null) {
-      await _prefs.setDenomination(userId, denomination);
-    }
+    await _prefs.setDenomination(userId, denomination);
     selectedDenomination = denomination;
-    showInitialSelector = false;
-    notifyListeners();
-  }
-
-  void skipInitialSelector() {
     showInitialSelector = false;
     notifyListeners();
   }
@@ -250,6 +247,17 @@ class EventsProvider extends ChangeNotifier {
 
   void setShowDenominationDropdown(bool value) {
     showDenominationDropdown = value;
+    notifyListeners();
+  }
+
+  void openDenominationChangeForm() {
+    showDenominationDropdown = false;
+    showDenominationChangeForm = true;
+    notifyListeners();
+  }
+
+  void closeDenominationChangeForm() {
+    showDenominationChangeForm = false;
     notifyListeners();
   }
 

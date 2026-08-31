@@ -670,7 +670,8 @@ class DenominationNoticeModal extends StatelessWidget {
             Positioned(
               top: topInset,
               left: 16,
-              child: IgnorePointer(
+              child: GestureDetector(
+                onTap: () {},
                 child: Material(
                   elevation: 24,
                   borderRadius: BorderRadius.circular(12),
@@ -763,12 +764,15 @@ class DenominationNoticeModal extends StatelessWidget {
                           ),
                         ),
                         const Divider(height: 1, color: KairoColors.darkBorder),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          child: Text(
-                            'Solicitar cambio de denominación',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: KairoColors.primary400, fontSize: 13),
+                        GestureDetector(
+                          onTap: provider.openDenominationChangeForm,
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                            child: Text(
+                              'Solicitar cambio de denominación',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: KairoColors.primary400, fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
                           ),
                         ),
                       ],
@@ -778,6 +782,97 @@ class DenominationNoticeModal extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class DenominationChangeFormModal extends StatefulWidget {
+  const DenominationChangeFormModal({super.key});
+
+  @override
+  State<DenominationChangeFormModal> createState() => _DenominationChangeFormModalState();
+}
+
+class _DenominationChangeFormModalState extends State<DenominationChangeFormModal> {
+  late final TextEditingController _excuse;
+
+  @override
+  void initState() {
+    super.initState();
+    _excuse = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _excuse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.read<EventsProvider>();
+    return GestureDetector(
+      onTap: provider.closeDenominationChangeForm,
+      behavior: HitTestBehavior.opaque,
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.8),
+        child: Center(
+          child: GestureDetector(
+            onTap: () {},
+            child: Container(
+              margin: const EdgeInsets.all(16),
+              constraints: const BoxConstraints(maxWidth: 400),
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: KairoColors.darkCard,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: KairoColors.darkBorder),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Cambio de denominación',
+                          style: TextStyle(color: KairoColors.darkText, fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: provider.closeDenominationChangeForm,
+                        style: IconButton.styleFrom(backgroundColor: KairoColors.darkHover),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _excuse,
+                    maxLines: 4,
+                    style: const TextStyle(color: Colors.white),
+                    cursorColor: KairoColors.primary500,
+                    decoration: _inputDecoration('excusa aquí'),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: provider.closeDenominationChangeForm,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: KairoColors.primary500,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      elevation: 0,
+                    ),
+                    child: const Text('Enviar'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

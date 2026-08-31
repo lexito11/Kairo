@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/kairo_colors.dart';
@@ -28,7 +29,7 @@ class EventsView extends StatelessWidget {
       return MainScaffold(
         child: DenominationSelector(
           onSelect: provider.handleDenominationSelect,
-          onBack: provider.skipInitialSelector,
+          onBack: () => context.go('/feed'),
         ),
       );
     }
@@ -45,6 +46,7 @@ class EventsView extends StatelessWidget {
           if (provider.selectedEvent != null) EventDetailModal(event: provider.selectedEvent!),
           if (provider.showFilterPanel) const EventsFilterPanel(),
           if (provider.showDenominationDropdown) const DenominationNoticeModal(),
+          if (provider.showDenominationChangeForm) const DenominationChangeFormModal(),
           if (provider.showChurchRegistration) const ChurchRegistrationModal(),
           if (provider.showEventRequestForm) const EventRequestModal(),
           if (provider.showChurchReviewNotice) const ChurchReviewNoticeModal(),

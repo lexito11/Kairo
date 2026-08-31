@@ -8,6 +8,7 @@ import '../models/bible_book.dart';
 import '../services/bible_api.dart';
 import '../services/bible_saved_store.dart';
 import '../widgets/bible_chrome.dart';
+import '../widgets/bible_icon.dart';
 
 class BibleReaderView extends StatefulWidget {
   const BibleReaderView({
@@ -280,7 +281,7 @@ class _BibleReaderViewState extends State<BibleReaderView> {
             children: [
               const BibleBackButton(),
               const SizedBox(width: 8),
-              const Icon(Icons.menu_book_rounded, color: KairoColors.primary400, size: 22),
+              const BibleIcon(color: KairoColors.primary400, size: 22),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
@@ -312,7 +313,6 @@ class _BibleReaderViewState extends State<BibleReaderView> {
             children: [
               Expanded(
                 child: _JumpChip(
-                  icon: Icons.menu_book_outlined,
                   label: 'Buscar capítulo',
                   value: '$_chapterNumber',
                   onTap: _book == null ? null : _pickChapter,
@@ -321,7 +321,6 @@ class _BibleReaderViewState extends State<BibleReaderView> {
               const SizedBox(width: 10),
               Expanded(
                 child: _JumpChip(
-                  icon: Icons.format_list_numbered,
                   label: 'Buscar versículo',
                   value: '${_highlightVerse ?? 1}',
                   onTap: _chapter == null ? null : _pickVerse,
@@ -370,9 +369,6 @@ class _BibleReaderViewState extends State<BibleReaderView> {
               decoration: BoxDecoration(
                 color: selected ? KairoColors.darkCard : Colors.transparent,
                 borderRadius: BorderRadius.circular(12),
-                border: selected
-                    ? Border.all(color: KairoColors.primary500.withValues(alpha: 0.45))
-                    : null,
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -459,13 +455,11 @@ class _BibleReaderViewState extends State<BibleReaderView> {
 
 class _JumpChip extends StatelessWidget {
   const _JumpChip({
-    required this.icon,
     required this.label,
     required this.value,
     required this.onTap,
   });
 
-  final IconData icon;
   final String label;
   final String value;
   final VoidCallback? onTap;
@@ -482,8 +476,6 @@ class _JumpChip extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(icon, color: KairoColors.primary400, size: 18),
-            const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

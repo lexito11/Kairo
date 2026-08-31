@@ -6,6 +6,7 @@ import '../../../core/widgets/main_scaffold.dart';
 import '../models/bible_book.dart';
 import '../services/bible_api.dart';
 import '../widgets/bible_chrome.dart';
+import '../widgets/bible_icon.dart';
 
 class BibleHomeView extends StatefulWidget {
   const BibleHomeView({super.key});
@@ -69,7 +70,12 @@ class _BibleHomeViewState extends State<BibleHomeView> {
       child: Column(
         children: [
           _header(),
-          Expanded(child: _body()),
+          Expanded(
+            child: ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+              child: _body(),
+            ),
+          ),
         ],
       ),
     );
@@ -85,7 +91,7 @@ class _BibleHomeViewState extends State<BibleHomeView> {
             children: [
               const BibleBackButton(),
               const SizedBox(width: 8),
-              const Icon(Icons.menu_book_rounded, color: KairoColors.primary400, size: 26),
+              const BibleIcon(color: KairoColors.primary400, size: 26),
               const SizedBox(width: 8),
               const Expanded(
                 child: Column(
@@ -153,9 +159,9 @@ class _BibleHomeViewState extends State<BibleHomeView> {
         children: const [
           Row(
             children: [
-              Expanded(child: _SectionTitle(icon: Icons.history_edu_outlined, title: 'Antiguo Testamento')),
+              Expanded(child: _SectionTitle(title: 'Antiguo Testamento')),
               SizedBox(width: 8),
-              Expanded(child: _SectionTitle(icon: Icons.auto_stories_outlined, title: 'Nuevo Testamento')),
+              Expanded(child: _SectionTitle(title: 'Nuevo Testamento')),
             ],
           ),
           SizedBox(height: 8),
@@ -236,7 +242,6 @@ class _BibleHomeViewState extends State<BibleHomeView> {
               Expanded(
                 child: _TestamentColumn(
                   title: 'Antiguo Testamento',
-                  icon: Icons.history_edu_outlined,
                   books: ot,
                   onOpen: _openBook,
                 ),
@@ -245,7 +250,6 @@ class _BibleHomeViewState extends State<BibleHomeView> {
               Expanded(
                 child: _TestamentColumn(
                   title: 'Nuevo Testamento',
-                  icon: Icons.auto_stories_outlined,
                   books: nt,
                   onOpen: _openBook,
                 ),
@@ -264,26 +268,17 @@ class _BibleHomeViewState extends State<BibleHomeView> {
 }
 
 class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.icon, required this.title});
+  const _SectionTitle({required this.title});
 
-  final IconData icon;
   final String title;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, color: KairoColors.primary400, size: 15),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
-          ),
-        ),
-      ],
+    return Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800),
     );
   }
 }
@@ -291,13 +286,11 @@ class _SectionTitle extends StatelessWidget {
 class _TestamentColumn extends StatelessWidget {
   const _TestamentColumn({
     required this.title,
-    required this.icon,
     required this.books,
     required this.onOpen,
   });
 
   final String title;
-  final IconData icon;
   final List<BibleBook> books;
   final void Function(BibleBook book) onOpen;
 
@@ -306,19 +299,13 @@ class _TestamentColumn extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionTitle(icon: icon, title: title),
+        _SectionTitle(title: title),
         const SizedBox(height: 8),
         for (final book in books)
           GestureDetector(
             onTap: () => onOpen(book),
-            child: Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 5),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                color: KairoColors.darkCard,
-                borderRadius: BorderRadius.circular(10),
-              ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(2, 7, 2, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

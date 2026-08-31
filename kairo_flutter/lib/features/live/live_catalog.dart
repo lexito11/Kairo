@@ -1,7 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../core/models/kairo_user.dart';
 import '../../../core/models/live_stream.dart';
+
+const _viewerQualifyAfter = Duration(seconds: 15);
+
+class _ViewerWatch {
+  _ViewerWatch({required this.streamId});
+
+  final String streamId;
+  Timer? qualifyTimer;
+  bool counted = false;
+}
 
 class LiveCatalog extends ChangeNotifier {
   LiveCatalog._();
@@ -12,6 +24,7 @@ class LiveCatalog extends ChangeNotifier {
     for (final s in _demoStreams) s.id: List<LiveChatMessage>.from(_demoChat(s.id)),
   };
   final Set<String> _liked = {};
+  final Map<String, _ViewerWatch> _watches = {};
 
   List<LiveStream> get streams => List.unmodifiable(_streams.where((s) => s.isLive));
 
@@ -30,14 +43,14 @@ class LiveCatalog extends ChangeNotifier {
   LiveStream startLive({
     required KairoUser host,
     required String title,
-    required String orientation,
   }) {
     final stream = LiveStream(
       id: 'local-${DateTime.now().millisecondsSinceEpoch}',
       host: host,
       title: title.trim().isEmpty ? 'Transmisión en vivo' : title.trim(),
-      orientation: orientation,
+      orientation: '16:9',
       viewerCount: 1,
+      totalViewers: 1,
       likesCount: 0,
       thumbnailUrl: host.image ?? _demoStreams.first.thumbnailUrl,
       tags: const [],
@@ -64,17 +77,11 @@ class LiveCatalog extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleLike(String id) {
+  void like(String id) {
     final i = _streams.indexWhere((s) => s.id == id);
-    if (i < 0) return;
-    final liked = _liked.contains(id);
-    if (liked) {
-      _liked.remove(id);
-      _streams[i] = _streams[i].copyWith(likesCount: (_streams[i].likesCount - 1).clamp(0, 1 << 30));
-    } else {
-      _liked.add(id);
-      _streams[i] = _streams[i].copyWith(likesCount: _streams[i].likesCount + 1);
-    }
+    if (i < 0 || _liked.contains(id)) return;
+    _liked.add(id);
+    _streams[i] = _streams[i].copyWith(likesCount: _streams[i].likesCount + 1);
     notifyListeners();
   }
 
@@ -100,9 +107,17 @@ class LiveCatalog extends ChangeNotifier {
 
   void join(String streamId, String name, String? image) {
     final i = _streams.indexWhere((s) => s.id == streamId);
-    if (i >= 0) {
-      _streams[i] = _streams[i].copyWith(viewerCount: _streams[i].viewerCount + 1);
+    final hostAlreadyCounted = i >= 0 && _streams[i].isHostSession && !_watches.containsKey(streamId);
+    if (!_watches.containsKey(streamId) && !hostAlreadyCounted) {
+      final watch = _ViewerWatch(streamId: streamId);
+      watch.qualifyTimer = Timer(_viewerQualifyAfter, () {
+        if (!_watches.containsKey(streamId) || watch.counted) return;
+        watch.counted = true;
+        _addQualifiedViewer(streamId);
+      });
+      _watches[streamId] = watch;
     }
+
     final list = _chats.putIfAbsent(streamId, () => []);
     list.add(
       LiveChatMessage(
@@ -112,6 +127,30 @@ class LiveCatalog extends ChangeNotifier {
         content: 'se unió al en vivo',
         isJoin: true,
       ),
+    );
+    notifyListeners();
+  }
+
+  void leave(String streamId) {
+    final watch = _watches.remove(streamId);
+    if (watch == null) return;
+    watch.qualifyTimer?.cancel();
+    if (!watch.counted) return;
+    final i = _streams.indexWhere((s) => s.id == streamId);
+    if (i < 0) return;
+    _streams[i] = _streams[i].copyWith(
+      viewerCount: (_streams[i].viewerCount - 1).clamp(0, 1 << 30),
+    );
+    notifyListeners();
+  }
+
+  void _addQualifiedViewer(String streamId) {
+    final i = _streams.indexWhere((s) => s.id == streamId);
+    if (i < 0) return;
+    final current = _streams[i];
+    _streams[i] = current.copyWith(
+      viewerCount: current.viewerCount + 1,
+      totalViewers: current.qualifiedTotal + 1,
     );
     notifyListeners();
   }
@@ -134,10 +173,20 @@ final _demoStreams = <LiveStream>[
     tags: const ['culto', 'adoración'],
   ),
   LiveStream(
+    id: 'demo-jovenes',
+    host: const KairoUser(id: 'demo-5', email: '', name: 'Ministerio Joven', image: _kChurch),
+    title: 'Encuentro de Jóvenes 🔥',
+    orientation: '16:9',
+    viewerCount: 248,
+    likesCount: 516,
+    thumbnailUrl: _kWorship,
+    tags: const ['jóvenes', 'alabanza'],
+  ),
+  LiveStream(
     id: 'demo-carlos',
     host: const KairoUser(id: 'demo-2', email: '', name: 'Pastor Carlos', image: _kPray),
     title: 'Testimonio & Oración ✨',
-    orientation: '9:16',
+    orientation: '16:9',
     viewerCount: 389,
     likesCount: 842,
     thumbnailUrl: _kHands,
@@ -155,7 +204,7 @@ final _demoStreams = <LiveStream>[
     id: 'demo-ana',
     host: const KairoUser(id: 'demo-4', email: '', name: 'Hermana Ana', image: _kPray),
     title: 'Devocional Mañanero 🌅',
-    orientation: '9:16',
+    orientation: '16:9',
     viewerCount: 97,
     likesCount: 210,
     thumbnailUrl: _kHands,

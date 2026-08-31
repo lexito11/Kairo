@@ -17,7 +17,6 @@ class GoLiveView extends StatefulWidget {
 
 class _GoLiveViewState extends State<GoLiveView> {
   final _title = TextEditingController();
-  bool _vertical = true;
   bool _cameraOn = false;
   bool _micOn = true;
   bool _starting = false;
@@ -45,7 +44,6 @@ class _GoLiveViewState extends State<GoLiveView> {
       final stream = LiveCatalog.instance.startLive(
         host: me,
         title: _title.text,
-        orientation: _vertical ? '9:16' : '16:9',
       );
       if (!mounted) return;
       context.pushReplacement('/live/${stream.id}');
@@ -86,7 +84,7 @@ class _GoLiveViewState extends State<GoLiveView> {
           ),
           const SizedBox(height: 12),
           AspectRatio(
-            aspectRatio: _vertical ? 9 / 14 : 16 / 9,
+            aspectRatio: 16 / 9,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(16),
               child: Stack(
@@ -140,9 +138,9 @@ class _GoLiveViewState extends State<GoLiveView> {
                         color: Colors.black.withValues(alpha: 0.7),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: Text(
-                        _vertical ? 'Vertical 9:16' : 'Horizontal 16:9',
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                      child: const Text(
+                        'Horizontal 16:9',
+                        style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
                       ),
                     ),
                   ),
@@ -170,37 +168,6 @@ class _GoLiveViewState extends State<GoLiveView> {
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Formato de transmisión',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _FormatCard(
-                  selected: _vertical,
-                  icon: Icons.stay_current_portrait,
-                  title: 'Vertical',
-                  res: '1080 x 1920',
-                  hint: 'Ideal para móvil.',
-                  onTap: () => setState(() => _vertical = true),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _FormatCard(
-                  selected: !_vertical,
-                  icon: Icons.stay_current_landscape,
-                  title: 'Horizontal',
-                  res: '1920 x 1080',
-                  hint: 'Ideal para pantalla completa.',
-                  onTap: () => setState(() => _vertical = false),
-                ),
-              ),
-            ],
           ),
           const SizedBox(height: 20),
           const Text(
@@ -272,63 +239,6 @@ class _GoLiveViewState extends State<GoLiveView> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _FormatCard extends StatelessWidget {
-  const _FormatCard({
-    required this.selected,
-    required this.icon,
-    required this.title,
-    required this.res,
-    required this.hint,
-    required this.onTap,
-  });
-
-  final bool selected;
-  final IconData icon;
-  final String title;
-  final String res;
-  final String hint;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
-        decoration: BoxDecoration(
-          color: KairoColors.darkCard,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: selected ? _teal : KairoColors.darkBorder, width: selected ? 1.6 : 1),
-        ),
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                Icon(icon, color: selected ? _teal : Colors.white, size: 28),
-                const SizedBox(height: 8),
-                Text(
-                  title,
-                  style: TextStyle(color: selected ? _teal : Colors.white, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 4),
-                Text(res, style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12)),
-                const SizedBox(height: 2),
-                Text(hint, textAlign: TextAlign.center, style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 11)),
-              ],
-            ),
-            if (selected)
-              const Positioned(
-                top: 0,
-                right: 0,
-                child: Icon(Icons.check_circle, color: _teal, size: 18),
-              ),
-          ],
-        ),
       ),
     );
   }

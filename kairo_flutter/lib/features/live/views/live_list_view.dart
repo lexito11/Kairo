@@ -249,7 +249,7 @@ class _StreamTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               child: SizedBox(
                 width: 96,
-                height: 64,
+                height: 54,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [

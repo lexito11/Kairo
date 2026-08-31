@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../core/theme/kairo_layout.dart';
+import '../models/bible_font.dart';
+
+enum VerseBgStyle { none, block, tight }
 
 class VerseTextLook {
   const VerseTextLook({
@@ -15,6 +18,16 @@ class VerseTextLook {
     this.fontId = 'sans',
     this.strokeWidth = 0,
     this.shadow = true,
+    this.opacity = 1,
+    this.sizeScale = 1,
+    this.letterSpacing = 0,
+    this.lineHeight = 1.28,
+    this.bold = true,
+    this.italic = false,
+    this.underline = false,
+    this.bgStyle = VerseBgStyle.none,
+    this.bgColor = const Color(0xFF111111),
+    this.bgOpacity = 0.55,
   });
 
   final Color color;
@@ -24,29 +37,46 @@ class VerseTextLook {
   final String fontId;
   final double strokeWidth;
   final bool shadow;
+  final double opacity;
+  final double sizeScale;
+  final double letterSpacing;
+  final double lineHeight;
+  final bool bold;
+  final bool italic;
+  final bool underline;
+  final VerseBgStyle bgStyle;
+  final Color bgColor;
+  final double bgOpacity;
 
-  String? get fontFamily => switch (fontId) {
-        'serif' => 'serif',
-        'script' => 'cursive',
-        _ => null,
-      };
+  FontStyle get fontStyle => italic ? FontStyle.italic : FontStyle.normal;
 
-  FontStyle get fontStyle => fontId == 'script' ? FontStyle.italic : FontStyle.normal;
+  FontWeight get fontWeight => bold ? FontWeight.w700 : FontWeight.w400;
 
   bool get hasStroke => strokeWidth > 0.35;
 
+  bool get hasBackground => bgStyle != VerseBgStyle.none;
+
+  Color get fillColor => color.withValues(alpha: opacity.clamp(0.15, 1));
+
+  Color get resolvedBg => bgColor.withValues(alpha: bgOpacity.clamp(0.15, 1));
+
   List<Shadow> get letterShadows => shadow
-      ? [Shadow(blurRadius: 6, color: Colors.black.withValues(alpha: 0.45), offset: const Offset(0, 1))]
+      ? [Shadow(blurRadius: 8, color: strokeColor.withValues(alpha: 0.7 * opacity), offset: Offset.zero)]
       : const [];
 
   TextStyle verseStyle({double scale = 1, bool placeholder = false}) {
-    return TextStyle(
-      color: color,
-      fontSize: fontSize * scale,
-      fontFamily: fontFamily,
+    final base = BibleFonts.textStyle(
+      fontId: fontId,
+      color: fillColor,
+      fontSize: fontSize * sizeScale * scale,
       fontStyle: placeholder ? FontStyle.italic : fontStyle,
-      fontWeight: FontWeight.w700,
-      height: 1.28,
+      weight: fontWeight,
+    );
+    return base.copyWith(
+      height: lineHeight,
+      letterSpacing: letterSpacing * scale,
+      decoration: underline ? TextDecoration.underline : TextDecoration.none,
+      decorationColor: fillColor,
       shadows: [
         for (final s in letterShadows)
           Shadow(
@@ -60,8 +90,8 @@ class VerseTextLook {
 
   TextStyle citationStyle({double scale = 1}) {
     return verseStyle(scale: scale).copyWith(
-      fontSize: (fontSize * 0.62).clamp(11, 16) * scale,
-      color: color.withValues(alpha: 0.92),
+      fontSize: (fontSize * sizeScale * 0.62).clamp(11, 16) * scale,
+      color: fillColor.withValues(alpha: (opacity * 0.92).clamp(0.15, 1)),
     );
   }
 
@@ -74,6 +104,16 @@ class VerseTextLook {
       fontId: fontId,
       strokeWidth: strokeWidth,
       shadow: shadow,
+      opacity: opacity,
+      sizeScale: sizeScale,
+      letterSpacing: letterSpacing,
+      lineHeight: lineHeight,
+      bold: bold,
+      italic: italic,
+      underline: underline,
+      bgStyle: bgStyle,
+      bgColor: bgColor,
+      bgOpacity: bgOpacity,
     );
   }
 
@@ -82,7 +122,7 @@ class VerseTextLook {
     required String citation,
     required double maxWidth,
   }) {
-    final extra = (hasStroke ? strokeWidth : 0) + (shadow ? 8 : 0);
+    final extra = (hasStroke ? strokeWidth : 0) + (hasBackground ? 12 : 2);
     final versePainter = TextPainter(
       text: TextSpan(text: verse, style: verseStyle()),
       textAlign: align,
@@ -109,7 +149,7 @@ class VerseTextLook {
   }) {
     if (inner.width <= 0 || inner.height <= 0) return true;
     final size = measureBlock(verse: verse, citation: citation, maxWidth: inner.width);
-    return size.height <= inner.height && size.width <= inner.width;
+    return size.height <= inner.height;
   }
 
   double maxSizeFor({
@@ -129,6 +169,54 @@ class VerseTextLook {
     for (var i = 0; i < 14; i++) {
       final mid = (lo + hi) / 2;
       if (atSize(mid).fitsIn(verse: verse, citation: citation, inner: inner)) {
+        best = mid;
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    return best;
+  }
+
+  VerseTextLook atScale(double scale) {
+    return VerseTextLook(
+      color: color,
+      strokeColor: strokeColor,
+      align: align,
+      fontSize: fontSize,
+      fontId: fontId,
+      strokeWidth: strokeWidth,
+      shadow: shadow,
+      opacity: opacity,
+      sizeScale: scale,
+      letterSpacing: letterSpacing,
+      lineHeight: lineHeight,
+      bold: bold,
+      italic: italic,
+      underline: underline,
+      bgStyle: bgStyle,
+      bgColor: bgColor,
+      bgOpacity: bgOpacity,
+    );
+  }
+
+  double maxScaleFor({
+    required String verse,
+    required String citation,
+    required Size inner,
+    double minScale = 0.7,
+    double hardMax = 1.5,
+  }) {
+    if (inner.width <= 0 || inner.height <= 0) return hardMax;
+    if (!atScale(minScale).fitsIn(verse: verse, citation: citation, inner: inner)) {
+      return minScale;
+    }
+    var lo = minScale;
+    var hi = hardMax;
+    var best = minScale;
+    for (var i = 0; i < 14; i++) {
+      final mid = (lo + hi) / 2;
+      if (atScale(mid).fitsIn(verse: verse, citation: citation, inner: inner)) {
         best = mid;
         lo = mid;
       } else {
@@ -182,8 +270,10 @@ class VerseImageExporter {
     final outputRect = Alignment.center.inscribe(fitted.destination, Offset.zero & dst);
     canvas.drawImageRect(bg, inputRect, outputRect, Paint()..filterQuality = FilterQuality.high);
 
-    final padding = 28 * scale;
-    final maxWidth = exportWidth - padding * 2;
+    final maxWidth = exportWidth * KairoLayout.verseColumnWidth;
+    final padding = (exportWidth - maxWidth) / 2;
+    final top = exportHeight * KairoLayout.verseColumnTop;
+    final columnHeight = exportHeight * (1 - KairoLayout.verseColumnTop - KairoLayout.verseColumnBottom);
 
     TextSpan verseSpan(Paint? foreground) {
       final base = look.verseStyle(scale: scale);
@@ -218,7 +308,35 @@ class VerseImageExporter {
 
     final gap = citationPainter == null ? 0.0 : 12 * scale;
     final blockHeight = versePainter.height + gap + (citationPainter?.height ?? 0);
-    var y = (exportHeight - blockHeight) / 2;
+    var y = top + ((columnHeight - blockHeight) / 2).clamp(0.0, columnHeight);
+
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(padding, top, maxWidth, columnHeight));
+
+    if (look.hasBackground) {
+      final bgPaint = Paint()..color = look.resolvedBg;
+      if (look.bgStyle == VerseBgStyle.block) {
+        final pad = 10 * scale;
+        final blockWidth = [
+          versePainter.width,
+          citationPainter?.width ?? 0,
+        ].reduce((a, b) => a > b ? a : b);
+        final dx = switch (look.align) {
+          TextAlign.right || TextAlign.end => padding + (maxWidth - blockWidth),
+          TextAlign.center || TextAlign.justify => padding + (maxWidth - blockWidth) / 2,
+          _ => padding,
+        };
+        canvas.drawRRect(
+          RRect.fromLTRBR(dx - pad, y - pad, dx + blockWidth + pad, y + blockHeight + pad, Radius.circular(4 * scale)),
+          bgPaint,
+        );
+      } else {
+        _paintTightBg(canvas, versePainter, padding, y, maxWidth, look.align, bgPaint, scale);
+        if (citationPainter != null) {
+          _paintTightBg(canvas, citationPainter, padding, y + versePainter.height + gap, maxWidth, look.align, bgPaint, scale);
+        }
+      }
+    }
 
     if (look.hasStroke) {
       final strokePaint = Paint()
@@ -248,35 +366,44 @@ class VerseImageExporter {
       _paintAligned(canvas, citationPainter, padding, y, maxWidth, look.align);
     }
 
+    canvas.restore();
+
     final mark = TextPainter(
       text: TextSpan(
         text: watermark,
         style: TextStyle(
-          color: Colors.white70,
-          fontSize: 11 * scale,
+          color: Colors.white54,
+          fontSize: 9 * scale,
           fontWeight: FontWeight.w800,
-          letterSpacing: 1.1,
+          letterSpacing: 0.8,
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    mark.paint(canvas, Offset(exportWidth - padding - mark.width, exportHeight - padding - mark.height));
+    final edge = 10.0 * scale;
+    canvas.save();
+    canvas.translate(exportWidth - edge - mark.width, exportHeight - edge - mark.height);
+    mark.paint(canvas, Offset.zero);
+    canvas.restore();
 
     if (photographer != null && photographer.isNotEmpty) {
       final credit = TextPainter(
         text: TextSpan(
           text: photographer,
           style: TextStyle(
-            color: Colors.white60,
-            fontSize: 10 * scale,
+            color: Colors.white38,
+            fontSize: 8 * scale,
             fontWeight: FontWeight.w500,
           ),
         ),
         textDirection: TextDirection.ltr,
         maxLines: 1,
         ellipsis: '…',
-      )..layout(maxWidth: exportWidth * 0.5);
-      credit.paint(canvas, Offset(padding, exportHeight - padding - credit.height));
+      )..layout(maxWidth: exportWidth * 0.45);
+      canvas.save();
+      canvas.translate(edge, exportHeight - edge - credit.height);
+      credit.paint(canvas, Offset.zero);
+      canvas.restore();
     }
 
     final picture = recorder.endRecording();
@@ -303,5 +430,34 @@ class VerseImageExporter {
       _ => padding,
     };
     painter.paint(canvas, Offset(dx, y));
+  }
+
+  static void _paintTightBg(
+    Canvas canvas,
+    TextPainter painter,
+    double padding,
+    double y,
+    double maxWidth,
+    TextAlign align,
+    Paint paint,
+    double scale,
+  ) {
+    final dx = switch (align) {
+      TextAlign.right || TextAlign.end => padding + (maxWidth - painter.width),
+      TextAlign.center || TextAlign.justify => padding + (maxWidth - painter.width) / 2,
+      _ => padding,
+    };
+    final inset = Offset(dx, y);
+    final pad = 5 * scale;
+    final length = painter.text?.toPlainText().length ?? 0;
+    final boxes = painter.getBoxesForSelection(
+      TextSelection(baseOffset: 0, extentOffset: length),
+    );
+    for (final box in boxes) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(box.toRect().shift(inset).inflate(pad), Radius.circular(2 * scale)),
+        paint,
+      );
+    }
   }
 }

@@ -13,6 +13,7 @@ import '../../../core/widgets/main_scaffold.dart';
 import '../../../features/auth/services/auth_service.dart';
 import '../../posts/providers/posts_provider.dart';
 import '../models/bible_photo.dart';
+import '../models/bible_font.dart';
 import '../services/bible_photo_api.dart';
 import '../services/verse_image_exporter.dart';
 import '../widgets/bible_chrome.dart';
@@ -54,17 +55,31 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
   double _fontSize = 20;
   double _maxFontSize = 32;
   static const _minFontSize = 12.0;
-  static const _hardMaxFontSize = 32.0;
+  static const _hardMaxFontSize = 48.0;
   TextAlign _align = TextAlign.center;
   Color _textColor = Colors.white;
   Color _strokeColor = const Color(0xFF111111);
   double _strokeWidth = 0;
   String _fontId = 'sans';
   bool _shadow = true;
-  bool _pickingStroke = false;
+  double _opacity = 1;
+  double _sizeScale = 1;
+  double _maxSizeScale = 1.5;
+  static const _minScale = 0.7;
+  static const _hardMaxScale = 1.5;
+  double _letterSpacing = 0;
+  double _lineHeight = 1.28;
+  bool _bold = true;
+  bool _italic = false;
+  bool _underline = false;
+  VerseBgStyle _bgStyle = VerseBgStyle.none;
+  _EditorMainTab _mainTab = _EditorMainTab.styles;
+  _StyleSubTab _styleTab = _StyleSubTab.text;
 
   bool _publishing = false;
   Uint8List? _renderedImageBytes;
+  bool _atTextLimit = false;
+  DateTime? _lastLimitWarn;
 
   static const _palette = [
     Colors.white,
@@ -95,9 +110,15 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
         fontId: _fontId,
         strokeWidth: _strokeWidth,
         shadow: _shadow,
+        opacity: _opacity,
+        sizeScale: _sizeScale,
+        letterSpacing: _letterSpacing,
+        lineHeight: _lineHeight,
+        bold: _bold,
+        italic: _italic,
+        underline: _underline,
+        bgStyle: _bgStyle,
       );
-
-  Color get _activeColor => _pickingStroke ? _strokeColor : _textColor;
 
   String get _citation {
     final raw = _ref.text.trim();
@@ -126,8 +147,8 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
     final box = _canvasKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return;
     final inner = Size(
-      (box.size.width - 32).clamp(1.0, box.size.width),
-      (box.size.height - 54).clamp(1.0, box.size.height),
+      (box.size.width * KairoLayout.verseColumnWidth).clamp(1.0, box.size.width),
+      (box.size.height * (1 - KairoLayout.verseColumnTop - KairoLayout.verseColumnBottom) - 24).clamp(1.0, box.size.height),
     );
     final verse = _text.text.trim().isEmpty ? 'Tu versículo o mensaje aquí...' : _text.text.trim();
     final maxSize = _look.maxSizeFor(
@@ -137,13 +158,48 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
       minSize: _minFontSize,
       hardMax: _hardMaxFontSize,
     );
-    if ((maxSize - _maxFontSize).abs() < 0.2 && _fontSize <= maxSize + 0.2) return;
+    final maxScale = _look.maxScaleFor(
+      verse: verse,
+      citation: _citation,
+      inner: inner,
+      minScale: _minScale,
+      hardMax: _hardMaxScale,
+    );
+    final hitLimit = (_fontSize >= maxSize - 0.15 && maxSize < _hardMaxFontSize - 0.4) ||
+        (_sizeScale >= maxScale - 0.02 && maxScale < _hardMaxScale - 0.03);
+    if ((maxSize - _maxFontSize).abs() < 0.2 &&
+        _fontSize <= maxSize + 0.2 &&
+        (maxScale - _maxSizeScale).abs() < 0.02 &&
+        _sizeScale <= maxScale + 0.02 &&
+        _atTextLimit == hitLimit) {
+      return;
+    }
     if (!mounted) return;
+    final grewPast = _fontSize > maxSize + 0.2 || _sizeScale > maxScale + 0.02;
     setState(() {
       _maxFontSize = maxSize;
       if (_fontSize > _maxFontSize) _fontSize = _maxFontSize;
       if (_fontSize < _minFontSize) _fontSize = _minFontSize;
+      _maxSizeScale = maxScale;
+      if (_sizeScale > _maxSizeScale) _sizeScale = _maxSizeScale;
+      if (_sizeScale < _minScale) _sizeScale = _minScale;
+      _atTextLimit = hitLimit;
     });
+    if (grewPast || hitLimit) _notifyTextLimit();
+  }
+
+  void _notifyTextLimit() {
+    final now = DateTime.now();
+    if (_lastLimitWarn != null && now.difference(_lastLimitWarn!) < const Duration(seconds: 3)) return;
+    _lastLimitWarn = now;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('El texto ya no cabe más en la imagen'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -262,43 +318,29 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
         children: [
           _header(),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: _canvas(),
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: _compactVerseBar(),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Column(
               children: [
-                _styleControls(),
-                const SizedBox(height: 18),
-                const Text(
-                  'ELIGE UN FONDO',
-                  style: TextStyle(
-                    color: KairoColors.darkTextSecondary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                const SizedBox(height: 10),
                 _categoryChips(),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 _photoCarousel(),
-                const SizedBox(height: 20),
-                const Text(
-                  'VERSÍCULO O MENSAJE',
-                  style: TextStyle(
-                    color: KairoColors.darkTextSecondary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                _verseFields(),
-                const SizedBox(height: 16),
-                _publishButton(),
               ],
+            ),
+          ),
+          Expanded(child: _editorSheet()),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+              child: _publishButton(),
             ),
           ),
         ],
@@ -335,7 +377,7 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
     final photo = _selected;
     final look = _look;
     final maxW = (MediaQuery.sizeOf(context).width - 32).clamp(260.0, 420.0);
-    final maxH = MediaQuery.sizeOf(context).height * 0.42;
+    final maxH = MediaQuery.sizeOf(context).height * 0.30;
     WidgetsBinding.instance.addPostFrameCallback((_) => _limitFontToCanvas());
     return Center(
       child: ConstrainedBox(
@@ -367,47 +409,71 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
                         );
                       },
                     ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 18, 16, 36),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        return ClipRect(
-                          child: Center(
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth: constraints.maxWidth,
-                                maxHeight: constraints.maxHeight,
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final side = constraints.maxWidth * ((1 - KairoLayout.verseColumnWidth) / 2);
+                      return Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          side,
+                          constraints.maxHeight * KairoLayout.verseColumnTop,
+                          side,
+                          constraints.maxHeight * KairoLayout.verseColumnBottom,
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, box) {
+                            return ClipRect(
+                              child: Align(
+                                alignment: Alignment.center,
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: box.maxWidth,
+                                    maxHeight: box.maxHeight,
+                                  ),
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.center,
+                                    child: SizedBox(
+                                      width: box.maxWidth,
+                                      child: _verseBlock(verse, look),
+                                    ),
+                                  ),
+                                ),
                               ),
-                              child: _verseBlock(verse, look),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                            );
+                          },
+                        ),
+                      );
+                    },
                   ),
-                  const Positioned(
-                    right: 10,
-                    bottom: 8,
-                    child: Text(
-                      'KAIRO',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1,
+                  Positioned(
+                    right: 4,
+                    bottom: 3,
+                    child: ImageFiltered(
+                      imageFilter: ui.ImageFilter.blur(sigmaX: 0.7, sigmaY: 0.7),
+                      child: Text(
+                        'KAIRO',
+                        style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.8,
+                        ),
                       ),
                     ),
                   ),
                   if (photo != null)
                     Positioned(
-                      left: 10,
-                      bottom: 8,
-                      child: Text(
-                        photo.photographer,
-                        style: const TextStyle(
-                          color: Colors.white60,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w500,
+                      left: 4,
+                      bottom: 3,
+                      child: ImageFiltered(
+                        imageFilter: ui.ImageFilter.blur(sigmaX: 0.7, sigmaY: 0.7),
+                        child: Text(
+                          photo.photographer,
+                          style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
                     ),
@@ -422,25 +488,35 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
 
   Widget _verseBlock(String verse, VerseTextLook look) {
     final placeholder = _text.text.trim().isEmpty;
-    return Column(
+    final cross = switch (look.align) {
+      TextAlign.left || TextAlign.start => CrossAxisAlignment.start,
+      TextAlign.right || TextAlign.end => CrossAxisAlignment.end,
+      _ => CrossAxisAlignment.center,
+    };
+    final verseStyle = look.verseStyle(placeholder: placeholder);
+    final column = Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: switch (look.align) {
-        TextAlign.left || TextAlign.start => CrossAxisAlignment.start,
-        TextAlign.right || TextAlign.end => CrossAxisAlignment.end,
-        _ => CrossAxisAlignment.center,
-      },
+      crossAxisAlignment: cross,
       children: [
-        _outlinedText(
-          verse,
-          look.verseStyle(placeholder: placeholder),
-          look,
-        ),
+        _styledLine(verse, verseStyle, look),
         if (_citation.isNotEmpty) ...[
           const SizedBox(height: 10),
-          _outlinedText(_citation, look.citationStyle(), look),
+          _styledLine(_citation, look.citationStyle(), look),
         ],
       ],
     );
+    if (look.bgStyle != VerseBgStyle.block) return column;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      color: look.resolvedBg,
+      child: column,
+    );
+  }
+
+  Widget _styledLine(String value, TextStyle style, VerseTextLook look) {
+    final text = _outlinedText(value, style, look);
+    if (look.bgStyle != VerseBgStyle.tight) return text;
+    return _TightLineBackground(value: value, style: style, look: look, child: text);
   }
 
   Widget _outlinedText(String value, TextStyle style, VerseTextLook look) {
@@ -448,6 +524,7 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
       value,
       textAlign: look.align,
       softWrap: true,
+      overflow: TextOverflow.clip,
       style: style,
     );
     if (!look.hasStroke) return text;
@@ -457,6 +534,7 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
           value,
           textAlign: look.align,
           softWrap: true,
+          overflow: TextOverflow.clip,
           style: style.copyWith(
             foreground: Paint()
               ..style = PaintingStyle.stroke
@@ -472,169 +550,441 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
     );
   }
 
-  Widget _styleControls() {
+  Widget _compactVerseBar() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       decoration: BoxDecoration(
         color: KairoColors.darkCard,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Text('Aa', style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12, fontWeight: FontWeight.w700)),
-              Expanded(
-                child: Slider(
-                  value: _fontSize.clamp(_minFontSize, _maxFontSize < _minFontSize ? _minFontSize : _maxFontSize),
-                  min: _minFontSize,
-                  max: _maxFontSize <= _minFontSize ? _minFontSize + 0.01 : _maxFontSize,
-                  activeColor: KairoColors.primary500,
-                  inactiveColor: KairoColors.darkHover,
-                  onChanged: (v) {
-                    final limit = _maxFontSize < _minFontSize ? _minFontSize : _maxFontSize;
-                    setState(() => _fontSize = v.clamp(_minFontSize, limit));
-                  },
-                ),
-              ),
-              Text(
-                '${_fontSize.round()}',
-                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              _FontChip(label: 'Letra', selected: !_pickingStroke, onTap: () => setState(() => _pickingStroke = false)),
-              const SizedBox(width: 6),
-              _FontChip(label: 'Borde', selected: _pickingStroke, onTap: () => setState(() => _pickingStroke = true)),
-              const Spacer(),
-              _AlignButton(
-                icon: Icons.blur_on,
-                selected: _shadow,
-                onTap: () => setState(() => _shadow = !_shadow),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 28,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: _palette.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (context, i) {
-                final color = _palette[i];
-                final selected = color == _activeColor;
-                return GestureDetector(
-                  onTap: () => setState(() {
-                    if (_pickingStroke) {
-                      _strokeColor = color;
-                      if (_strokeWidth < 1) _strokeWidth = 2.4;
-                    } else {
-                      _textColor = color;
-                    }
-                  }),
-                  child: Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: selected ? KairoColors.primary400 : Colors.white24,
-                        width: selected ? 2.5 : 1,
-                      ),
-                    ),
-                  ),
-                );
-              },
+          TextField(
+            controller: _text,
+            maxLength: _maxChars,
+            maxLines: 2,
+            style: const TextStyle(color: Colors.white, fontSize: 14),
+            cursorColor: KairoColors.primary400,
+            decoration: const InputDecoration(
+              hintText: 'Introducir texto',
+              hintStyle: TextStyle(color: KairoColors.darkTextSecondary),
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              counterText: '',
+              isDense: true,
             ),
           ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              const Text('Tono', style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 8,
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                  ),
-                  child: Slider(
-                    value: HSVColor.fromColor(_activeColor).hue,
-                    min: 0,
-                    max: 359,
-                    activeColor: _activeColor,
-                    inactiveColor: KairoColors.darkHover,
-                    onChanged: (hue) {
-                      final current = HSVColor.fromColor(_activeColor);
-                      final next = current.withHue(hue).withSaturation(current.saturation < 0.12 ? 0.85 : current.saturation).toColor();
-                      setState(() {
-                        if (_pickingStroke) {
-                          _strokeColor = next;
-                          if (_strokeWidth < 1) _strokeWidth = 2.4;
-                        } else {
-                          _textColor = next;
-                        }
-                      });
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-          Row(
-            children: [
-              const Text('Borde', style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
-              Expanded(
-                child: Slider(
-                  value: _strokeWidth,
-                  min: 0,
-                  max: 6,
-                  activeColor: KairoColors.primary500,
-                  inactiveColor: KairoColors.darkHover,
-                  onChanged: (v) => setState(() => _strokeWidth = v),
-                ),
-              ),
-              Text(
-                _strokeWidth < 0.4 ? 'Off' : _strokeWidth.toStringAsFixed(1),
-                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              _FontChip(label: 'Sans', selected: _fontId == 'sans', onTap: () => setState(() => _fontId = 'sans')),
-              const SizedBox(width: 6),
-              _FontChip(label: 'Serif', selected: _fontId == 'serif', onTap: () => setState(() => _fontId = 'serif')),
-              const SizedBox(width: 6),
-              _FontChip(label: 'Elegante', selected: _fontId == 'script', onTap: () => setState(() => _fontId = 'script')),
-              const Spacer(),
-              _AlignButton(
-                icon: Icons.format_align_left,
-                selected: _align == TextAlign.left,
-                onTap: () => setState(() => _align = TextAlign.left),
-              ),
-              const SizedBox(width: 6),
-              _AlignButton(
-                icon: Icons.format_align_center,
-                selected: _align == TextAlign.center,
-                onTap: () => setState(() => _align = TextAlign.center),
-              ),
-              const SizedBox(width: 6),
-              _AlignButton(
-                icon: Icons.format_align_right,
-                selected: _align == TextAlign.right,
-                onTap: () => setState(() => _align = TextAlign.right),
-              ),
-            ],
+          TextField(
+            controller: _ref,
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+            cursorColor: KairoColors.primary400,
+            decoration: const InputDecoration(
+              hintText: 'Referencia Ej: Génesis 1:1',
+              hintStyle: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              isDense: true,
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _editorSheet() {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFF141414),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Divider(height: 1, color: KairoColors.darkBorder),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: _sizeSlider(),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: Row(
+              children: [
+                _MainTab(
+                  label: 'Fuentes',
+                  selected: false,
+                  onTap: _openFontsWindow,
+                ),
+                const SizedBox(width: 22),
+                _MainTab(
+                  label: 'Estilos',
+                  selected: _mainTab == _EditorMainTab.styles,
+                  onTap: () => setState(() => _mainTab = _EditorMainTab.styles),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: _stylesBody(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openFontsWindow() async {
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: const Color(0xFF1A1A1A),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 40),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: SizedBox(
+            height: MediaQuery.sizeOf(ctx).height * 0.65,
+            width: 480,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text('Fuentes', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        style: IconButton.styleFrom(backgroundColor: KairoColors.darkHover),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Expanded(child: _fontsGrid(onPick: (id) => Navigator.of(ctx).pop(id))),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    if (mounted) setState(() => _mainTab = _EditorMainTab.styles);
+  }
+
+  Widget _fontsGrid({required ValueChanged<String> onPick}) {
+    return GridView.builder(
+      itemCount: BibleFonts.all.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
+        childAspectRatio: 2.4,
+      ),
+      itemBuilder: (context, i) {
+        final font = BibleFonts.all[i];
+        return GestureDetector(
+          onTap: () {
+            setState(() => _fontId = font.id);
+            onPick(font.id);
+          },
+          child: Container(
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFF2A2A2A),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              font.label,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: BibleFonts.textStyle(
+                fontId: font.id,
+                color: Colors.white,
+                fontSize: font.id == 'script' || font.id == 'hand' || font.id == 'pacifico' || font.id == 'caveat' ? 18 : 14,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _stylesBody() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+        _letterPresets(),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 32,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              _SubTab(label: 'Texto', selected: _styleTab == _StyleSubTab.text, onTap: () => setState(() => _styleTab = _StyleSubTab.text)),
+              _SubTab(label: 'Fondo', selected: _styleTab == _StyleSubTab.background, onTap: () => setState(() => _styleTab = _StyleSubTab.background)),
+              _SubTab(label: 'Espaciado', selected: _styleTab == _StyleSubTab.spacing, onTap: () => setState(() => _styleTab = _StyleSubTab.spacing)),
+              _SubTab(label: 'Negrita cursiva', selected: _styleTab == _StyleSubTab.format, onTap: () => setState(() => _styleTab = _StyleSubTab.format)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        switch (_styleTab) {
+          _StyleSubTab.text => _textoControls(),
+          _StyleSubTab.background => _fondoControls(),
+          _StyleSubTab.spacing => _espaciadoControls(),
+          _StyleSubTab.format => _formatoControls(),
+        },
+        ],
+      ),
+    );
+  }
+
+  void _applyLetterPreset(_LetterPreset preset) {
+    setState(() {
+      _textColor = preset.color;
+      _strokeColor = preset.strokeColor;
+      _strokeWidth = preset.strokeWidth;
+      _shadow = preset.shadow;
+    });
+  }
+
+  Widget _letterPresets() {
+    return SizedBox(
+      height: 56,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _LetterPreset.all.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final preset = _LetterPreset.all[i];
+          return GestureDetector(
+            onTap: () => _applyLetterPreset(preset),
+            child: Container(
+              width: 52,
+              height: 52,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2A2A2A),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: preset.none
+                  ? const Icon(Icons.block, color: Colors.white70, size: 22)
+                  : Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        if (preset.strokeWidth > 0)
+                          Text(
+                            'Aa',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              foreground: Paint()
+                                ..style = PaintingStyle.stroke
+                                ..strokeWidth = 2.4
+                                ..color = preset.strokeColor,
+                            ),
+                          ),
+                        Text(
+                          'Aa',
+                          style: TextStyle(
+                            color: preset.color,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            shadows: preset.shadow
+                                ? [
+                                    Shadow(
+                                      blurRadius: 8,
+                                      color: preset.strokeColor.withValues(alpha: 0.85),
+                                      offset: Offset.zero,
+                                    ),
+                                  ]
+                                : const [],
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _sizeSlider() {
+    final limit = _maxFontSize < _minFontSize ? _minFontSize : _maxFontSize;
+    final max = limit <= _minFontSize ? _minFontSize + 0.01 : limit;
+    return Column(
+      children: [
+        Row(
+          children: [
+            const Text('Aa', style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13, fontWeight: FontWeight.w700)),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                ),
+                child: Slider(
+                  value: _fontSize.clamp(_minFontSize, limit),
+                  min: _minFontSize,
+                  max: max,
+                  activeColor: KairoColors.primary400,
+                  inactiveColor: const Color(0xFF3A3A3A),
+                  onChanged: (v) {
+                    setState(() => _fontSize = v.clamp(_minFontSize, limit));
+                    if (v >= limit - 0.05) _notifyTextLimit();
+                    WidgetsBinding.instance.addPostFrameCallback((_) => _limitFontToCanvas());
+                  },
+                ),
+              ),
+            ),
+            SizedBox(
+              width: 28,
+              child: Text(
+                '${_fontSize.round()}',
+                textAlign: TextAlign.right,
+                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+        if (_atTextLimit)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 2),
+            child: Text(
+              'Ya no cabe más en la imagen',
+              style: TextStyle(color: Color(0xFFFBBF24), fontSize: 11, fontWeight: FontWeight.w600),
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _onScaleChanged(double value) {
+    final limit = _maxSizeScale < _minScale ? _minScale : _maxSizeScale;
+    setState(() => _sizeScale = value.clamp(_minScale, limit));
+    if (value >= limit - 0.02) _notifyTextLimit();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _limitFontToCanvas());
+  }
+
+  Widget _textoControls() {
+    return Column(
+      children: [
+        _LabeledSlider(
+          label: 'Opacidad',
+          value: _opacity,
+          min: 0.2,
+          max: 1,
+          onChanged: (v) => setState(() => _opacity = v),
+        ),
+        const SizedBox(height: 6),
+        SizedBox(
+          height: 28,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _palette.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final color = _palette[i];
+              final selected = color == _textColor;
+              return GestureDetector(
+                onTap: () => setState(() => _textColor = color),
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: selected ? Colors.white : Colors.white24, width: selected ? 2.4 : 1),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _fondoControls() {
+    return Row(
+      children: [
+        _BgStyleTile(
+          selected: _bgStyle == VerseBgStyle.none,
+          onTap: () => setState(() => _bgStyle = VerseBgStyle.none),
+          child: const Icon(Icons.block, color: Colors.white70, size: 26),
+        ),
+        const SizedBox(width: 10),
+        _BgStyleTile(
+          selected: _bgStyle == VerseBgStyle.block,
+          onTap: () => setState(() => _bgStyle = VerseBgStyle.block),
+          child: Container(
+            width: 54,
+            height: 36,
+            alignment: Alignment.center,
+            color: const Color(0xFF6B6B6B),
+            child: const Text('AB\nABC', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 10, height: 1.15, fontWeight: FontWeight.w700)),
+          ),
+        ),
+        const SizedBox(width: 10),
+        _BgStyleTile(
+          selected: _bgStyle == VerseBgStyle.tight,
+          onTap: () => setState(() => _bgStyle = VerseBgStyle.tight),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2), color: const Color(0xFF6B6B6B), child: const Text('AB', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700))),
+              const SizedBox(height: 3),
+              Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), color: const Color(0xFF6B6B6B), child: const Text('ABC', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700))),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _espaciadoControls() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            _AlignButton(icon: Icons.format_align_left, selected: _align == TextAlign.left, onTap: () => setState(() => _align = TextAlign.left)),
+            const SizedBox(width: 8),
+            _AlignButton(icon: Icons.format_align_center, selected: _align == TextAlign.center, onTap: () => setState(() => _align = TextAlign.center)),
+            const SizedBox(width: 8),
+            _AlignButton(icon: Icons.format_align_right, selected: _align == TextAlign.right, onTap: () => setState(() => _align = TextAlign.right)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _LabeledSlider(
+          label: 'Escala',
+          value: _sizeScale.clamp(_minScale, _maxSizeScale < _minScale ? _minScale : _maxSizeScale),
+          min: _minScale,
+          max: _maxSizeScale <= _minScale ? _minScale + 0.01 : _maxSizeScale,
+          onChanged: _onScaleChanged,
+        ),
+        _LabeledSlider(label: 'Carácter', value: _letterSpacing, min: -2, max: 8, onChanged: (v) => setState(() => _letterSpacing = v)),
+        _LabeledSlider(label: 'Línea', value: _lineHeight, min: 0.9, max: 2, onChanged: (v) => setState(() => _lineHeight = v)),
+      ],
+    );
+  }
+
+  Widget _formatoControls() {
+    return Row(
+      children: [
+        _FormatTile(label: 'B', selected: _bold, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: Colors.white), onTap: () => setState(() => _bold = !_bold)),
+        const SizedBox(width: 10),
+        _FormatTile(label: 'I', selected: _italic, style: const TextStyle(fontStyle: FontStyle.italic, fontSize: 22, color: Colors.white, fontWeight: FontWeight.w600), onTap: () => setState(() => _italic = !_italic)),
+        const SizedBox(width: 10),
+        _FormatTile(label: 'U', selected: _underline, style: const TextStyle(decoration: TextDecoration.underline, fontSize: 22, color: Colors.white, fontWeight: FontWeight.w600), onTap: () => setState(() => _underline = !_underline)),
+      ],
     );
   }
 
@@ -684,22 +1034,22 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
   Widget _photoCarousel() {
     if (_loadingPhotos) {
       return SizedBox(
-        height: 92,
+        height: 64,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: 6,
           separatorBuilder: (_, __) => const SizedBox(width: 8),
           itemBuilder: (_, __) => const SizedBox(
-            width: 128,
-            height: 92,
-            child: BibleSkeletonBox(height: 92, borderRadius: 12),
+            width: 96,
+            height: 64,
+            child: BibleSkeletonBox(height: 64, borderRadius: 10),
           ),
         ),
       );
     }
     if (_photosError != null) {
       return Container(
-        height: 92,
+        height: 64,
         alignment: Alignment.center,
         decoration: BoxDecoration(color: KairoColors.darkCard, borderRadius: BorderRadius.circular(12)),
         child: TextButton(
@@ -709,7 +1059,7 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
       );
     }
     return SizedBox(
-      height: 92,
+      height: 64,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: _photos.length,
@@ -721,7 +1071,7 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
             onTap: () => _selectPhoto(photo),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 160),
-              width: 128,
+              width: 96,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
@@ -846,8 +1196,40 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
   }
 }
 
-class _FontChip extends StatelessWidget {
-  const _FontChip({required this.label, required this.selected, required this.onTap});
+class _LetterPreset {
+  const _LetterPreset({
+    required this.color,
+    required this.strokeColor,
+    required this.strokeWidth,
+    required this.shadow,
+    this.none = false,
+  });
+
+  final Color color;
+  final Color strokeColor;
+  final double strokeWidth;
+  final bool shadow;
+  final bool none;
+
+  static const all = [
+    _LetterPreset(color: Colors.white, strokeColor: Colors.black, strokeWidth: 0, shadow: false, none: true),
+    _LetterPreset(color: Colors.white, strokeColor: Color(0xFF111111), strokeWidth: 2.4, shadow: false),
+    _LetterPreset(color: Color(0xFF111111), strokeColor: Colors.white, strokeWidth: 2.4, shadow: false),
+    _LetterPreset(color: Colors.white, strokeColor: Color(0xFF111111), strokeWidth: 0, shadow: true),
+    _LetterPreset(color: Color(0xFF111111), strokeColor: Colors.white, strokeWidth: 0, shadow: true),
+    _LetterPreset(color: Color(0xFFFBBF24), strokeColor: Color(0xFF111111), strokeWidth: 2.2, shadow: false),
+    _LetterPreset(color: Color(0xFFEF4444), strokeColor: Colors.white, strokeWidth: 2.2, shadow: false),
+    _LetterPreset(color: Color(0xFFF97316), strokeColor: Colors.white, strokeWidth: 2.2, shadow: false),
+    _LetterPreset(color: Color(0xFF38BDF8), strokeColor: Colors.white, strokeWidth: 2.2, shadow: false),
+  ];
+}
+
+enum _EditorMainTab { fonts, styles }
+
+enum _StyleSubTab { text, background, spacing, format }
+
+class _MainTab extends StatelessWidget {
+  const _MainTab({required this.label, required this.selected, required this.onTap});
 
   final String label;
   final bool selected;
@@ -857,22 +1239,206 @@ class _FontChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? KairoColors.primary700 : KairoColors.darkHover,
-          borderRadius: BorderRadius.circular(10),
-        ),
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : KairoColors.darkTextSecondary,
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            height: 2,
+            width: 28,
+            color: selected ? KairoColors.primary400 : Colors.transparent,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SubTab extends StatelessWidget {
+  const _SubTab({required this.label, required this.selected, required this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 16),
         child: Text(
           label,
           style: TextStyle(
             color: selected ? Colors.white : KairoColors.darkTextSecondary,
-            fontWeight: FontWeight.w700,
-            fontSize: 11,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            fontSize: 13,
           ),
         ),
       ),
     );
+  }
+}
+
+class _LabeledSlider extends StatelessWidget {
+  const _LabeledSlider({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+  });
+
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 68,
+          child: Text(label, style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+        ),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 4,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+            ),
+            child: Slider(
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              activeColor: KairoColors.primary400,
+              inactiveColor: KairoColors.darkHover,
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BgStyleTile extends StatelessWidget {
+  const _BgStyleTile({required this.selected, required this.onTap, required this.child});
+
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 72,
+        height: 64,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: KairoColors.darkHover,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: selected ? Colors.white : Colors.transparent, width: 1.6),
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _FormatTile extends StatelessWidget {
+  const _FormatTile({required this.label, required this.selected, required this.style, required this.onTap});
+
+  final String label;
+  final bool selected;
+  final TextStyle style;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 56,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: KairoColors.darkHover,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: selected ? Colors.white : Colors.transparent, width: 1.6),
+          ),
+          child: Text(label, style: style),
+        ),
+      ),
+    );
+  }
+}
+
+class _TightLineBackground extends StatelessWidget {
+  const _TightLineBackground({
+    required this.value,
+    required this.style,
+    required this.look,
+    required this.child,
+  });
+
+  final String value;
+  final TextStyle style;
+  final VerseTextLook look;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final painter = TextPainter(
+          text: TextSpan(text: value, style: style),
+          textAlign: look.align,
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: constraints.maxWidth);
+        final length = value.length;
+        final boxes = painter.getBoxesForSelection(TextSelection(baseOffset: 0, extentOffset: length));
+        return CustomPaint(
+          painter: _TightBgPainter(boxes: boxes, color: look.resolvedBg),
+          child: child,
+        );
+      },
+    );
+  }
+}
+
+class _TightBgPainter extends CustomPainter {
+  const _TightBgPainter({required this.boxes, required this.color});
+
+  final List<TextBox> boxes;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    for (final box in boxes) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(box.toRect().inflate(4), const Radius.circular(2)),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TightBgPainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.boxes != boxes;
   }
 }
 

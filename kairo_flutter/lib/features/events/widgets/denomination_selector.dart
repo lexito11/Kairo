@@ -111,40 +111,35 @@ class _DenominationSelectorState extends State<DenominationSelector> {
                           separatorBuilder: (_, __) => const SizedBox(height: 8),
                           itemBuilder: (_, i) {
                             final d = denominationOptions[i];
-                            return Material(
-                              color: KairoColors.darkHover,
-                              borderRadius: BorderRadius.circular(12),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(12),
-                                onTap: () => setState(() {
-                                  _selected = d.id;
-                                  _showConfirmation = true;
-                                }),
-                                child: Padding(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: isMobile ? 16 : 14,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 12,
-                                        height: 12,
-                                        decoration: BoxDecoration(color: d.color, shape: BoxShape.circle),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Text(
-                                          d.name,
-                                          style: const TextStyle(
-                                            color: KairoColors.darkText,
-                                            fontWeight: FontWeight.w500,
-                                          ),
+                            return InkWell(
+                              onTap: () => setState(() {
+                                _selected = d.id;
+                                _showConfirmation = true;
+                              }),
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: isMobile ? 14 : 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(color: d.color, shape: BoxShape.circle),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Text(
+                                        d.name,
+                                        style: const TextStyle(
+                                          color: KairoColors.darkText,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
-                                      const Icon(Icons.chevron_right, color: KairoColors.darkTextSecondary),
-                                    ],
-                                  ),
+                                    ),
+                                    const Icon(Icons.chevron_right, color: KairoColors.darkTextSecondary),
+                                  ],
                                 ),
                               ),
                             );

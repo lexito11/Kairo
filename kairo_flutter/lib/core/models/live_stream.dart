@@ -7,6 +7,7 @@ class LiveStream {
     required this.title,
     required this.orientation,
     required this.viewerCount,
+    this.totalViewers,
     required this.likesCount,
     required this.thumbnailUrl,
     this.tags = const [],
@@ -19,16 +20,18 @@ class LiveStream {
   final String title;
   final String orientation;
   final int viewerCount;
+  final int? totalViewers;
   final int likesCount;
   final String thumbnailUrl;
   final List<String> tags;
   final bool isLive;
   final bool isHostSession;
 
-  bool get isVertical => orientation == '9:16';
+  int get qualifiedTotal => totalViewers ?? viewerCount;
 
   LiveStream copyWith({
     int? viewerCount,
+    int? totalViewers,
     int? likesCount,
     bool? isLive,
   }) {
@@ -38,6 +41,7 @@ class LiveStream {
       title: title,
       orientation: orientation,
       viewerCount: viewerCount ?? this.viewerCount,
+      totalViewers: totalViewers ?? this.totalViewers,
       likesCount: likesCount ?? this.likesCount,
       thumbnailUrl: thumbnailUrl,
       tags: tags,
