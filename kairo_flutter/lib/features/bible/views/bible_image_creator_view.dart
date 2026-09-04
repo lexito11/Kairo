@@ -452,13 +452,13 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
                       imageFilter: ui.ImageFilter.blur(sigmaX: 0.7, sigmaY: 0.7),
                       child: Text(
                         'KAIRO',
-                        style: TextStyle(
+                  style: TextStyle(
                           color: Colors.white54,
                           fontSize: 8,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
+                    letterSpacing: 0.8,
+                  ),
+                ),
                     ),
                   ),
                   if (photo != null)
@@ -500,7 +500,7 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
       children: [
         _styledLine(verse, verseStyle, look),
         if (_citation.isNotEmpty) ...[
-          const SizedBox(height: 10),
+                const SizedBox(height: 10),
           _styledLine(_citation, look.citationStyle(), look),
         ],
       ],
@@ -678,15 +678,15 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
   Widget _fontsGrid({required ValueChanged<String> onPick}) {
     return GridView.builder(
       itemCount: BibleFonts.all.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 4,
         mainAxisSpacing: 6,
         crossAxisSpacing: 6,
         childAspectRatio: 2.4,
-      ),
-      itemBuilder: (context, i) {
+                  ),
+                  itemBuilder: (context, i) {
         final font = BibleFonts.all[i];
-        return GestureDetector(
+                    return GestureDetector(
           onTap: () {
             setState(() => _fontId = font.id);
             onPick(font.id);
@@ -697,18 +697,18 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
               color: const Color(0xFF2A2A2A),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Text(
+                                child: Text(
               font.label,
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: BibleFonts.textStyle(
                 fontId: font.id,
-                color: Colors.white,
+                                    color: Colors.white,
                 fontSize: font.id == 'script' || font.id == 'hand' || font.id == 'pacifico' || font.id == 'caveat' ? 18 : 14,
-              ),
-            ),
-          ),
+                                  ),
+                                ),
+                              ),
         );
       },
     );
@@ -807,12 +807,12 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
                                 : const [],
                           ),
                         ),
-                      ],
-                    ),
-            ),
-          );
-        },
-      ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 
@@ -1016,9 +1016,9 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
                   const SizedBox(width: 6),
                   Text(
                     category.label,
-                    style: TextStyle(
+                  style: TextStyle(
                       color: selected ? Colors.white : KairoColors.darkTextSecondary,
-                      fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w700,
                       fontSize: 12,
                     ),
                   ),
@@ -1103,59 +1103,59 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
   Widget _verseFields() {
     return Column(
       children: [
-        Container(
-          decoration: BoxDecoration(
-            color: KairoColors.darkCard,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
-          child: Column(
-            children: [
-              TextField(
-                controller: _text,
-                maxLength: _maxChars,
-                maxLines: 5,
-                style: const TextStyle(color: Colors.white, height: 1.4),
-                cursorColor: KairoColors.primary500,
-                decoration: const InputDecoration(
-                  hintText: 'Escribe o pega un versículo...',
-                  hintStyle: TextStyle(color: KairoColors.darkTextSecondary),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  counterText: '',
+                Container(
+                  decoration: BoxDecoration(
+                    color: KairoColors.darkCard,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _text,
+                        maxLength: _maxChars,
+                        maxLines: 5,
+                        style: const TextStyle(color: Colors.white, height: 1.4),
+                        cursorColor: KairoColors.primary500,
+                        decoration: const InputDecoration(
+                          hintText: 'Escribe o pega un versículo...',
+                          hintStyle: TextStyle(color: KairoColors.darkTextSecondary),
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          counterText: '',
+                        ),
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          '${_text.text.length}/$_maxChars',
+                          style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 11),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Text(
-                  '${_text.text.length}/$_maxChars',
-                  style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 11),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          decoration: BoxDecoration(
-            color: KairoColors.darkCard,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: TextField(
-            controller: _ref,
-            style: const TextStyle(color: Colors.white),
-            cursorColor: KairoColors.primary500,
-            decoration: const InputDecoration(
+                const SizedBox(height: 10),
+                Container(
+                  decoration: BoxDecoration(
+                    color: KairoColors.darkCard,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: TextField(
+                    controller: _ref,
+                    style: const TextStyle(color: Colors.white),
+                    cursorColor: KairoColors.primary500,
+                    decoration: const InputDecoration(
               hintText: 'Referencia Ej: Génesis 1:1',
-              hintStyle: TextStyle(color: KairoColors.darkTextSecondary),
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-            ),
-          ),
-        ),
+                      hintStyle: TextStyle(color: KairoColors.darkTextSecondary),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                    ),
+                  ),
+                ),
       ],
     );
   }
@@ -1164,34 +1164,34 @@ class _BibleImageCreatorViewState extends State<BibleImageCreatorView> {
     final disabled = _publishing || _text.text.trim().isEmpty || _selected == null;
     return GestureDetector(
       onTap: disabled ? null : _publish,
-      child: Opacity(
+                  child: Opacity(
         opacity: disabled && !_publishing ? 0.45 : 1,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            color: KairoColors.primary700,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (_publishing)
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              else
-                const Icon(Icons.send_rounded, color: Colors.white, size: 18),
-              const SizedBox(width: 8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      decoration: BoxDecoration(
+                        color: KairoColors.primary700,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (_publishing)
+                            const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          else
+                            const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+                          const SizedBox(width: 8),
               Text(
                 _renderedImageBytes != null && _publishing ? 'Subiendo imagen...' : 'Publicar en el Feed',
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15),
-              ),
-            ],
-          ),
-        ),
-      ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
     );
   }
 }
@@ -1305,7 +1305,7 @@ class _LabeledSlider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: [
+          children: [
         SizedBox(
           width: 68,
           child: Text(label, style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
@@ -1325,9 +1325,9 @@ class _LabeledSlider extends StatelessWidget {
               inactiveColor: KairoColors.darkHover,
               onChanged: onChanged,
             ),
-          ),
-        ),
-      ],
+                      ),
+                    ),
+                  ],
     );
   }
 }

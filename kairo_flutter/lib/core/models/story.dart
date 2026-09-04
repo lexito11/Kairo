@@ -20,6 +20,7 @@ class Story {
   final String? soundName;
 
   bool get isVideo => mediaType == 'video';
+  bool get isExpired => !expiresAt.isAfter(DateTime.now());
 
   factory Story.fromJson(Map<String, dynamic> json) {
     final authorJson = json['author'] as Map<String, dynamic>?;

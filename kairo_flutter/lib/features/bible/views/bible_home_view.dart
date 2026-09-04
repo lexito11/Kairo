@@ -5,6 +5,7 @@ import '../../../core/theme/kairo_colors.dart';
 import '../../../core/widgets/main_scaffold.dart';
 import '../models/bible_book.dart';
 import '../services/bible_api.dart';
+import '../services/bible_text_size_store.dart';
 import '../widgets/bible_chrome.dart';
 import '../widgets/bible_icon.dart';
 
@@ -20,6 +21,7 @@ class _BibleHomeViewState extends State<BibleHomeView> {
   List<BibleBook> _books = const [];
   bool _loading = true;
   String? _error;
+  int _chapter = 1;
 
   @override
   void initState() {
@@ -55,13 +57,61 @@ class _BibleHomeViewState extends State<BibleHomeView> {
   }
 
   void _openBook(BibleBook book) {
-    context.push('/bible/read/${book.id}?chapter=1&verse=1');
+    final chapter = _chapter.clamp(1, book.numberOfChapters);
+    context.push('/bible/read/${book.id}?chapter=$chapter&verse=1');
+  }
+
+  BibleBook? get _targetBook {
+    if (_books.isEmpty) return null;
+    final parsed = parseBibleQuery(_search.text, _books);
+    if (parsed != null) {
+      for (final book in _books) {
+        if (book.id == parsed.bookId) return book;
+      }
+    }
+    final q = foldBibleQuery(_search.text);
+    final matches = _books.where((b) => q.isEmpty || _matches(b, q)).toList();
+    if (matches.length == 1) return matches.single;
+    return null;
+  }
+
+  int get _chapterMax {
+    final book = _targetBook;
+    if (book != null) return book.numberOfChapters;
+    var max = 1;
+    for (final book in _books) {
+      if (book.numberOfChapters > max) max = book.numberOfChapters;
+    }
+    return max < 1 ? 150 : max;
+  }
+
+  void _setChapter(int chapter) {
+    final next = chapter.clamp(1, _chapterMax);
+    if (next == _chapter) return;
+    setState(() => _chapter = next);
+  }
+
+  void _onSearchChanged(String _) {
+    final max = _chapterMax;
+    setState(() {
+      if (_chapter > max) _chapter = max;
+    });
   }
 
   void _onSearchSubmitted(String value) {
     final hit = parseBibleQuery(value, _books);
-    if (hit == null) return;
-    context.push('/bible/read/${hit.bookId}?chapter=${hit.chapter}&verse=${hit.verse}');
+    if (hit != null) {
+      context.push('/bible/read/${hit.bookId}?chapter=${hit.chapter}&verse=${hit.verse}');
+      return;
+    }
+    final book = _targetBook;
+    if (book != null) _openBook(book);
+  }
+
+  void _onChapterSubmitted(int chapter) {
+    _setChapter(chapter);
+    final book = _targetBook;
+    if (book != null) _openBook(book);
   }
 
   @override
@@ -108,6 +158,8 @@ class _BibleHomeViewState extends State<BibleHomeView> {
                   ],
                 ),
               ),
+              const BibleTextSizeControls(),
+              const SizedBox(width: 8),
               IconButton(
                 tooltip: 'Versículos guardados',
                 onPressed: () => context.push('/bible/saved'),
@@ -117,10 +169,24 @@ class _BibleHomeViewState extends State<BibleHomeView> {
             ],
           ),
           const SizedBox(height: 12),
-          BibleSearchField(
-            controller: _search,
-            onChanged: (_) => setState(() {}),
-            onSubmitted: _onSearchSubmitted,
+          Row(
+            children: [
+              Expanded(
+                child: BibleSearchField(
+                  controller: _search,
+                  onChanged: _onSearchChanged,
+                  onSubmitted: _onSearchSubmitted,
+                ),
+              ),
+              const SizedBox(width: 8),
+              BibleChapterStepper(
+                value: _chapter,
+                max: _chapterMax,
+                enabled: !_loading && _books.isNotEmpty,
+                onChanged: _setChapter,
+                onSubmitted: _onChapterSubmitted,
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           GestureDetector(
@@ -198,9 +264,12 @@ class _BibleHomeViewState extends State<BibleHomeView> {
     final ot = _books.where((b) => b.isOldTestament).where((b) => q.isEmpty || _matches(b, q)).toList();
     final nt = _books.where((b) => b.isNewTestament).where((b) => q.isEmpty || _matches(b, q)).toList();
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
-      children: [
+    return AnimatedBuilder(
+      animation: BibleTextSizeStore.instance,
+      builder: (context, _) {
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
+          children: [
         if (parsed != null) ...[
           GestureDetector(
             onTap: () => context.push(
@@ -256,7 +325,9 @@ class _BibleHomeViewState extends State<BibleHomeView> {
               ),
             ],
           ),
-      ],
+          ],
+        );
+      },
     );
   }
 
@@ -313,11 +384,18 @@ class _TestamentColumn extends StatelessWidget {
                     book.displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: (13 * BibleTextSizeStore.instance.size / 16).clamp(12, 22),
+                    ),
                   ),
                   Text(
                     '${book.numberOfChapters} ${book.numberOfChapters == 1 ? 'capítulo' : 'capítulos'}',
-                    style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 11),
+                    style: TextStyle(
+                      color: KairoColors.darkTextSecondary,
+                      fontSize: (11 * BibleTextSizeStore.instance.size / 16).clamp(10, 16),
+                    ),
                   ),
                 ],
               ),

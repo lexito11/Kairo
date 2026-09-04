@@ -2,11 +2,15 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/models/kairo_user.dart';
+import '../../../core/models/profile_moment.dart';
 import '../../../core/models/story.dart';
+import '../../../core/theme/kairo_colors.dart';
 import '../../../core/utils/format_time_ago.dart';
 import '../../../core/widgets/kairo_avatar.dart';
 import '../../../features/auth/services/auth_service.dart';
 import '../../messages/services/messages_repository.dart';
+import '../../profile/services/moments_repository.dart';
 import '../services/stories_repository.dart';
 import 'story_send_sheet.dart';
 
@@ -16,11 +20,19 @@ class StoryViewer extends StatefulWidget {
     required this.groups,
     required this.initialGroupIndex,
     this.initialStoryIndex = 0,
+    this.moment,
+    this.canManageMoment = false,
+    this.onEditMoment,
+    this.onDeleteMoment,
   });
 
   final List<StoryGroup> groups;
   final int initialGroupIndex;
   final int initialStoryIndex;
+  final ProfileMoment? moment;
+  final bool canManageMoment;
+  final Future<bool> Function()? onEditMoment;
+  final Future<void> Function()? onDeleteMoment;
 
   @override
   State<StoryViewer> createState() => _StoryViewerState();
@@ -31,12 +43,14 @@ class _StoryViewerState extends State<StoryViewer>
   static const _imageDuration = Duration(seconds: 5);
 
   final _storiesRepo = StoriesRepository();
+  final _momentsRepo = MomentsRepository();
   final _messagesRepo = MessagesRepository();
   final _replyController = TextEditingController();
   final _replyFocus = FocusNode();
 
   late int _groupIndex;
   late int _storyIndex;
+  late List<StoryGroup> _groups;
   late final AnimationController _progress;
 
   final Set<String> _likedIds = {};
@@ -45,12 +59,22 @@ class _StoryViewerState extends State<StoryViewer>
   bool _sendingReply = false;
   bool _liking = false;
   bool _endedHandled = false;
+  bool _ignoreTap = false;
+  double _likesReveal = 0;
+  List<KairoUser> _likers = const [];
+  bool _loadingLikers = false;
+
+  bool get _isMoment => widget.moment != null;
 
   @override
   void initState() {
     super.initState();
     _groupIndex = widget.initialGroupIndex;
     _storyIndex = widget.initialStoryIndex;
+    _groups = [
+      for (final group in widget.groups)
+        StoryGroup(author: group.author, stories: List.of(group.stories)),
+    ];
     _progress = AnimationController(vsync: this)
       ..addStatusListener((status) {
         if (status == AnimationStatus.completed) _goNext();
@@ -71,7 +95,7 @@ class _StoryViewerState extends State<StoryViewer>
     super.dispose();
   }
 
-  StoryGroup get _group => widget.groups[_groupIndex];
+  StoryGroup get _group => _groups[_groupIndex];
   Story get _story => _group.stories[_storyIndex];
   bool get _isOwn {
     final uid = AuthService().currentUser?.id;
@@ -86,9 +110,11 @@ class _StoryViewerState extends State<StoryViewer>
   }
 
   Future<void> _loadLikes() async {
-    final ids = widget.groups.expand((g) => g.stories.map((s) => s.id));
+    final ids = _groups.expand((g) => g.stories.map((s) => s.id));
     try {
-      final liked = await _storiesRepo.likedStoryIds(ids);
+      final liked = _isMoment
+          ? await _momentsRepo.likedItemIds(ids)
+          : await _storiesRepo.likedStoryIds(ids);
       if (mounted) setState(() => _likedIds.addAll(liked));
     } catch (_) {}
   }
@@ -135,7 +161,8 @@ class _StoryViewerState extends State<StoryViewer>
     if (_storyIndex < group.stories.length - 1) {
       setState(() => _storyIndex++);
       _startProgress();
-    } else if (_groupIndex < widget.groups.length - 1) {
+      if (_likesReveal > 0.3) _loadLikers();
+    } else if (_groupIndex < _groups.length - 1) {
       setState(() {
         _groupIndex++;
         _storyIndex = 0;
@@ -155,7 +182,7 @@ class _StoryViewerState extends State<StoryViewer>
     } else if (_groupIndex > 0) {
       setState(() {
         _groupIndex--;
-        _storyIndex = widget.groups[_groupIndex].stories.length - 1;
+        _storyIndex = _groups[_groupIndex].stories.length - 1;
       });
       _startProgress();
     } else {
@@ -164,7 +191,12 @@ class _StoryViewerState extends State<StoryViewer>
   }
 
   void _onTapUp(TapUpDetails details) {
-    if (_holding || _replyFocus.hasFocus) return;
+    if (_holding || _replyFocus.hasFocus || _ignoreTap) return;
+    if (_likesReveal > 0.2) {
+      setState(() => _likesReveal = 0);
+      if (!_replyFocus.hasFocus && !_holding) _setPaused(false);
+      return;
+    }
     final dx = details.localPosition.dx;
     final width = MediaQuery.sizeOf(context).width;
     if (dx > width * 0.35) {
@@ -172,6 +204,42 @@ class _StoryViewerState extends State<StoryViewer>
     } else {
       _goPrev();
     }
+  }
+
+  void _onVerticalDragUpdate(DragUpdateDetails details) {
+    if (!_isMoment) return;
+    _ignoreTap = true;
+    final next = (_likesReveal - details.delta.dy / 260).clamp(0.0, 1.0);
+    setState(() => _likesReveal = next);
+    if (next > 0.08) _setPaused(true);
+    if (next > 0.4) _loadLikers();
+  }
+
+  void _onVerticalDragEnd(DragEndDetails details) {
+    if (!_isMoment) return;
+    final open = _likesReveal > 0.32 || details.velocity.pixelsPerSecond.dy < -280;
+    setState(() => _likesReveal = open ? 1 : 0);
+    if (open) {
+      _setPaused(true);
+      _loadLikers();
+    } else if (!_replyFocus.hasFocus && !_holding) {
+      _setPaused(false);
+    }
+    Future<void>.delayed(const Duration(milliseconds: 120), () {
+      if (mounted) _ignoreTap = false;
+    });
+  }
+
+  Future<void> _loadLikers() async {
+    if (!_isMoment) return;
+    final id = _story.id;
+    setState(() => _loadingLikers = true);
+    final likers = await _momentsRepo.fetchItemLikers(id);
+    if (!mounted || _story.id != id) return;
+    setState(() {
+      _likers = likers;
+      _loadingLikers = false;
+    });
   }
 
   Future<void> _sendReply() async {
@@ -214,7 +282,9 @@ class _StoryViewerState extends State<StoryViewer>
       }
     });
     try {
-      final liked = await _storiesRepo.toggleLike(id);
+      final liked = _isMoment
+          ? await _momentsRepo.toggleItemLike(id)
+          : await _storiesRepo.toggleLike(id);
       if (!mounted) return;
       setState(() {
         if (liked) {
@@ -223,7 +293,7 @@ class _StoryViewerState extends State<StoryViewer>
           _likedIds.remove(id);
         }
       });
-      if (liked && !wasLiked) {
+      if (liked && !wasLiked && !_isMoment) {
         try {
           await _messagesRepo.sendMessage(
             _group.author.id,
@@ -250,7 +320,107 @@ class _StoryViewerState extends State<StoryViewer>
   Future<void> _openSendSheet() async {
     _setPaused(true);
     await showStorySendSheet(context, story: _story);
-    if (mounted && !_replyFocus.hasFocus && !_holding) _setPaused(false);
+    if (mounted && !_replyFocus.hasFocus && !_holding && _likesReveal < 0.2) _setPaused(false);
+  }
+
+  Future<void> _openOwnerMenu() async {
+    if (!_isOwn) return;
+    _setPaused(true);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: KairoColors.darkCard,
+      barrierColor: Colors.black54,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.canManageMoment) ...[
+                  ListTile(
+                    leading: const Icon(Icons.edit_outlined, color: Colors.white),
+                    title: const Text('Editar momento', style: TextStyle(color: Colors.white)),
+                    subtitle: const Text(
+                      'Añade o quita historias',
+                      style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
+                    ),
+                    onTap: () => Navigator.pop(context, 'edit'),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.delete_outline, color: KairoColors.errorText),
+                    title: const Text('Eliminar momento', style: TextStyle(color: KairoColors.errorText)),
+                    onTap: () => Navigator.pop(context, 'delete_moment'),
+                  ),
+                ],
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: KairoColors.errorText),
+                  title: Text(
+                    _isMoment ? 'Eliminar esta historia' : 'Eliminar historia',
+                    style: const TextStyle(color: KairoColors.errorText),
+                  ),
+                  onTap: () => Navigator.pop(context, 'delete_story'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (!mounted) return;
+    if (action == 'edit') {
+      final ok = await widget.onEditMoment?.call() ?? false;
+      if (ok && mounted) Navigator.pop(context);
+      return;
+    }
+    if (action == 'delete_moment') {
+      await widget.onDeleteMoment?.call();
+      if (mounted) Navigator.pop(context);
+      return;
+    }
+    if (action == 'delete_story') {
+      await _deleteCurrentStory();
+      return;
+    }
+    if (!_replyFocus.hasFocus && !_holding && _likesReveal < 0.2) _setPaused(false);
+  }
+
+  Future<void> _deleteCurrentStory() async {
+    final storyId = _story.id;
+    try {
+      if (_isMoment && widget.moment != null) {
+        await _momentsRepo.removeItem(widget.moment!.id, storyId);
+      } else {
+        await _storiesRepo.deleteStory(storyId);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo eliminar la historia')),
+      );
+      if (!_replyFocus.hasFocus && !_holding) _setPaused(false);
+      return;
+    }
+    if (!mounted) return;
+    final stories = List<Story>.of(_group.stories)..removeWhere((s) => s.id == storyId);
+    if (stories.isEmpty) {
+      _groups.removeAt(_groupIndex);
+      if (_groups.isEmpty) {
+        Navigator.pop(context);
+        return;
+      }
+      if (_groupIndex >= _groups.length) _groupIndex = _groups.length - 1;
+      _storyIndex = 0;
+    } else {
+      _groups[_groupIndex] = StoryGroup(author: _group.author, stories: stories);
+      if (_storyIndex >= stories.length) _storyIndex = stories.length - 1;
+    }
+    setState(() {});
+    _startProgress();
+    if (!_replyFocus.hasFocus && !_holding && _likesReveal < 0.2) _setPaused(false);
   }
 
   @override
@@ -271,40 +441,52 @@ class _StoryViewerState extends State<StoryViewer>
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTapUp: _onTapUp,
+              onVerticalDragUpdate: _isMoment ? _onVerticalDragUpdate : null,
+              onVerticalDragEnd: _isMoment ? _onVerticalDragEnd : null,
               onLongPressStart: (_) {
                 _holding = true;
                 _setPaused(true);
               },
               onLongPressEnd: (_) {
                 _holding = false;
-                if (!_replyFocus.hasFocus) _setPaused(false);
+                if (!_replyFocus.hasFocus && _likesReveal < 0.2) _setPaused(false);
               },
-              child: story.isVideo
-                  ? _StoryVideo(
-                      key: ValueKey(story.id),
-                      url: story.mediaUrl,
-                      paused: _paused,
-                      onDuration: (duration) {
-                        if (_story.id == story.id) {
-                          _startProgress(videoDuration: duration);
-                        }
-                      },
-                      onEnded: () {
-                        if (_story.id == story.id) _goNext();
-                      },
-                    )
-                  : CachedNetworkImage(
-                      imageUrl: story.mediaUrl,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      height: double.infinity,
-                      placeholder: (_, __) =>
-                          const ColoredBox(color: Colors.black),
-                      errorWidget: (_, __, ___) => const Center(
-                        child: Icon(Icons.broken_image_outlined,
-                            color: Colors.white54, size: 48),
-                      ),
-                    ),
+              child: Transform.translate(
+                offset: Offset(0, -36 * _likesReveal),
+                child: Transform.scale(
+                  alignment: Alignment.topCenter,
+                  scale: 1 - 0.38 * _likesReveal,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22 * _likesReveal),
+                    child: story.isVideo
+                        ? _StoryVideo(
+                            key: ValueKey(story.id),
+                            url: story.mediaUrl,
+                            paused: _paused,
+                            onDuration: (duration) {
+                              if (_story.id == story.id) {
+                                _startProgress(videoDuration: duration);
+                              }
+                            },
+                            onEnded: () {
+                              if (_story.id == story.id) _goNext();
+                            },
+                          )
+                        : CachedNetworkImage(
+                            imageUrl: story.mediaUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: double.infinity,
+                            placeholder: (_, __) =>
+                                const ColoredBox(color: Colors.black),
+                            errorWidget: (_, __, ___) => const Center(
+                              child: Icon(Icons.broken_image_outlined,
+                                  color: Colors.white54, size: 48),
+                            ),
+                          ),
+                  ),
+                ),
+              ),
             ),
           ),
           const Positioned.fill(
@@ -396,10 +578,22 @@ class _StoryViewerState extends State<StoryViewer>
                   ),
                   const Expanded(
                       child: IgnorePointer(child: SizedBox.expand())),
+                  if (_isMoment && _likesReveal > 0.05)
+                    Opacity(
+                      opacity: _likesReveal.clamp(0.0, 1.0),
+                      child: SizedBox(
+                        height: 210 * _likesReveal,
+                        child: _LikersPanel(
+                          likers: _likers,
+                          loading: _loadingLikers,
+                        ),
+                      ),
+                    ),
                   Padding(
                     padding: EdgeInsets.fromLTRB(
                         12, 0, 8, 10 + (bottomInset > 0 ? 0 : 4)),
                     child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         if (!_isOwn)
                           Expanded(
@@ -455,7 +649,10 @@ class _StoryViewerState extends State<StoryViewer>
                         if (!_isOwn) ...[
                           const SizedBox(width: 6),
                           IconButton(
-                            onPressed: _toggleLike,
+                            onPressed: () async {
+                              await _toggleLike();
+                              if (_likesReveal > 0.4) _loadLikers();
+                            },
                             icon: Icon(
                               liked ? Icons.favorite : Icons.favorite_border,
                               color: liked
@@ -465,10 +662,22 @@ class _StoryViewerState extends State<StoryViewer>
                             ),
                           ),
                         ],
-                        IconButton(
-                          onPressed: _openSendSheet,
-                          icon: const Icon(Icons.send,
-                              color: Colors.white, size: 26),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_isOwn)
+                              IconButton(
+                                tooltip: 'Opciones',
+                                onPressed: _openOwnerMenu,
+                                icon: const Icon(Icons.more_vert,
+                                    color: Colors.white, size: 26),
+                              ),
+                            IconButton(
+                              onPressed: _openSendSheet,
+                              icon: const Icon(Icons.send,
+                                  color: Colors.white, size: 26),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -476,6 +685,72 @@ class _StoryViewerState extends State<StoryViewer>
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LikersPanel extends StatelessWidget {
+  const _LikersPanel({required this.likers, required this.loading});
+
+  final List<KairoUser> likers;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      decoration: const BoxDecoration(
+        color: Color(0xE6000000),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.favorite, color: Color(0xFFEF4444), size: 18),
+              SizedBox(width: 8),
+              Text(
+                'Corazones',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : likers.isEmpty
+                    ? const Text(
+                        'Nadie ha dado corazón a este momento todavía.',
+                        style: TextStyle(color: Colors.white70, fontSize: 13),
+                      )
+                    : ListView.separated(
+                        itemCount: likers.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, i) {
+                          final user = likers[i];
+                          return Row(
+                            children: [
+                              KairoAvatar(imageUrl: user.image, name: user.displayName, size: 34),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  user.displayName,
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              const Icon(Icons.favorite, color: Color(0xFFEF4444), size: 16),
+                            ],
+                          );
+                        },
+                      ),
           ),
         ],
       ),

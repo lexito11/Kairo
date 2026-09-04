@@ -111,6 +111,93 @@ class StoriesRepository {
     return Story.fromJson(mapped);
   }
 
+  Future<bool> hasActiveStories(String userId) async {
+    try {
+      final rows = await _client
+          .from('stories')
+          .select('id')
+          .eq('author_id', userId)
+          .gt('expires_at', DateTime.now().toIso8601String())
+          .limit(1);
+      return (rows as List).isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<String?> latestOwnImageUrl() async {
+    final uid = _userId;
+    if (uid == null) return null;
+    try {
+      final row = await _client
+          .from('stories')
+          .select('media_url, media_type')
+          .eq('author_id', uid)
+          .neq('media_type', 'video')
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      if (row == null) return null;
+      if (row['media_type'] == 'video') return null;
+      final url = (row['media_url'] as String?)?.trim();
+      if (url == null || url.isEmpty) return null;
+      return url;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<Story>> fetchMyActiveStories() async {
+    final uid = _userId;
+    if (uid == null) return [];
+    try {
+      final groups = await fetchStoryGroups();
+      for (final group in groups) {
+        if (group.author.id == uid) return group.stories;
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /// Historias propias para destacar: las de 24 h y las del archivo.
+  Future<List<Story>> fetchMyHighlightStories() async {
+    final uid = _userId;
+    if (uid == null) return [];
+    List rows;
+    try {
+      rows = await _client
+          .from('stories')
+          .select(
+              'id, media_url, media_type, created_at, expires_at, author_id, sound_name')
+          .eq('author_id', uid)
+          .order('created_at', ascending: false);
+    } catch (_) {
+      try {
+        rows = await _client
+            .from('stories')
+            .select('id, media_url, media_type, created_at, expires_at, author_id')
+            .eq('author_id', uid)
+            .order('created_at', ascending: false);
+      } catch (_) {
+        return fetchMyActiveStories();
+      }
+    }
+    if (rows.isEmpty) return [];
+    final user = await _client
+        .from('users')
+        .select('id, email, name, username, image')
+        .eq('id', uid)
+        .maybeSingle();
+    if (user == null) return [];
+    final stories = <Story>[];
+    for (final r in rows.cast<Map<String, dynamic>>()) {
+      final copy = Map<String, dynamic>.from(r);
+      copy['author'] = user;
+      stories.add(Story.fromJson(copy));
+    }
+    return stories;
+  }
+
   Future<Set<String>> likedStoryIds(Iterable<String> storyIds) async {
     final uid = _userId;
     final ids = storyIds.toList();
@@ -151,5 +238,11 @@ class StoriesRepository {
       'author_id': uid,
     });
     return true;
+  }
+
+  Future<void> deleteStory(String storyId) async {
+    final uid = _userId;
+    if (uid == null) throw Exception('Debes iniciar sesión');
+    await _client.from('stories').delete().eq('id', storyId).eq('author_id', uid);
   }
 }

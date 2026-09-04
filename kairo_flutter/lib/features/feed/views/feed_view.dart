@@ -89,7 +89,6 @@ class _FeedViewState extends State<FeedView> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<PostsProvider>();
-    final summary = context.watch<SocialSummaryProvider>();
 
     final topInset = MediaQuery.paddingOf(context).top;
     final headerHeight = topInset + 44;
@@ -105,7 +104,7 @@ class _FeedViewState extends State<FeedView> with WidgetsBindingObserver {
             slivers: [
             SliverPersistentHeader(
               pinned: true,
-              delegate: _FeedHeaderDelegate(summary: summary, height: headerHeight),
+              delegate: _FeedHeaderDelegate(height: headerHeight),
             ),
             SliverToBoxAdapter(
               child: Column(
@@ -203,9 +202,8 @@ class _FeedViewState extends State<FeedView> with WidgetsBindingObserver {
 }
 
 class _FeedHeaderDelegate extends SliverPersistentHeaderDelegate {
-  _FeedHeaderDelegate({required this.summary, required this.height});
+  _FeedHeaderDelegate({required this.height});
 
-  final SocialSummaryProvider summary;
   final double height;
 
   @override
@@ -220,19 +218,16 @@ class _FeedHeaderDelegate extends SliverPersistentHeaderDelegate {
       color: KairoColors.darkBg,
       elevation: overlapsContent ? 1 : 0,
       shadowColor: Colors.black54,
-      child: _FeedHeader(summary: summary),
+      child: const _FeedHeader(),
     );
   }
 
   @override
-  bool shouldRebuild(covariant _FeedHeaderDelegate old) =>
-      old.height != height || old.summary.unreadCount != summary.unreadCount;
+  bool shouldRebuild(covariant _FeedHeaderDelegate old) => old.height != height;
 }
 
 class _FeedHeader extends StatelessWidget {
-  const _FeedHeader({required this.summary});
-
-  final SocialSummaryProvider summary;
+  const _FeedHeader();
 
   @override
   Widget build(BuildContext context) {
@@ -287,30 +282,6 @@ class _FeedHeader extends StatelessWidget {
                   context.push('/personas');
                 },
               ),
-              if (AuthService().isSignedIn)
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    _FeedHeaderButton(
-                      tooltip: 'Notificaciones',
-                      icon: const _FeedHeaderGlyph(Icons.notifications_outlined, color: KairoColors.darkText),
-                      onPressed: () {
-                        FeedPlaybackFocusManager.instance.pauseAll();
-                        context.push('/notifications');
-                      },
-                    ),
-                    if (summary.unreadCount > 0)
-                      Positioned(
-                        right: 8,
-                        top: 8,
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(color: KairoColors.primary500, shape: BoxShape.circle),
-                        ),
-                      ),
-                  ],
-                ),
             ],
           ),
         ),

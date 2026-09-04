@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/utils/username.dart';
 
 class AuthService {
   AuthService({SupabaseClient? client}) : _client = client ?? Supabase.instance.client;
@@ -29,10 +30,13 @@ class AuthService {
     String? name,
     String? username,
   }) async {
-    final trimmedUsername = username?.trim();
-    if (trimmedUsername != null && trimmedUsername.isNotEmpty) {
-      final taken = await _isUsernameTaken(trimmedUsername);
-      if (taken) {
+    final trimmedUsername = username == null || username.trim().isEmpty
+        ? null
+        : UsernamePolicy.sanitize(username);
+    if (trimmedUsername != null) {
+      final invalid = UsernamePolicy.validate(trimmedUsername);
+      if (invalid != null) throw AuthException(invalid);
+      if (await _isUsernameTaken(trimmedUsername)) {
         throw AuthException('Este usuario ya está en uso');
       }
     }

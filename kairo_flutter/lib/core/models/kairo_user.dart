@@ -5,9 +5,12 @@ class KairoUser {
     this.name,
     this.username,
     this.image,
+    this.coverUrl,
     this.bio,
     this.mood,
+    this.moodUpdatedAt,
     this.createdAt,
+    this.usernameChangedAt,
   });
 
   final String id;
@@ -15,9 +18,20 @@ class KairoUser {
   final String? name;
   final String? username;
   final String? image;
+  final String? coverUrl;
   final String? bio;
   final String? mood;
+  final DateTime? moodUpdatedAt;
   final DateTime? createdAt;
+  final DateTime? usernameChangedAt;
+
+  static const moodLockDuration = Duration(hours: 24);
+
+  bool get hasActiveMood {
+    final value = mood?.trim();
+    if (value == null || value.isEmpty || moodUpdatedAt == null) return false;
+    return DateTime.now().toUtc().difference(moodUpdatedAt!.toUtc()) < moodLockDuration;
+  }
 
   String get displayName {
     final n = name?.trim();
@@ -33,8 +47,11 @@ class KairoUser {
     String? name,
     String? username,
     String? image,
+    String? coverUrl,
     String? bio,
     String? mood,
+    DateTime? moodUpdatedAt,
+    DateTime? usernameChangedAt,
   }) {
     return KairoUser(
       id: id,
@@ -42,9 +59,12 @@ class KairoUser {
       name: name ?? this.name,
       username: username ?? this.username,
       image: image ?? this.image,
+      coverUrl: coverUrl ?? this.coverUrl,
       bio: bio ?? this.bio,
       mood: mood ?? this.mood,
+      moodUpdatedAt: moodUpdatedAt ?? this.moodUpdatedAt,
       createdAt: createdAt,
+      usernameChangedAt: usernameChangedAt ?? this.usernameChangedAt,
     );
   }
   String get handle => username != null ? '@$username' : '';
@@ -55,22 +75,36 @@ class KairoUser {
         'name': name,
         'username': username,
         'image': image,
+        'coverUrl': coverUrl,
         'bio': bio,
         'mood': mood,
+        'mood_updated_at': moodUpdatedAt?.toIso8601String(),
       };
 
   factory KairoUser.fromJson(Map<String, dynamic> json) {
+    String? text(dynamic value) {
+      if (value == null) return null;
+      final s = value.toString().trim();
+      return s.isEmpty ? null : s;
+    }
+
+    DateTime? date(dynamic value) {
+      if (value == null) return null;
+      return DateTime.tryParse(value.toString());
+    }
+
     return KairoUser(
-      id: json['id'] as String,
+      id: json['id'].toString(),
       email: json['email'] as String? ?? '',
-      name: json['name'] as String?,
-      username: json['username'] as String?,
-      image: json['image'] as String?,
-      bio: json['bio'] as String?,
-      mood: json['mood'] as String?,
-      createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'] as String)
-          : null,
+      name: text(json['name']),
+      username: text(json['username']),
+      image: text(json['image']) ?? text(json['avatar_url']),
+      coverUrl: text(json['cover_url']) ?? text(json['coverUrl']),
+      bio: text(json['bio']),
+      mood: text(json['mood']),
+      moodUpdatedAt: date(json['mood_updated_at']),
+      createdAt: date(json['created_at']),
+      usernameChangedAt: date(json['username_changed_at']),
     );
   }
 }

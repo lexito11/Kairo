@@ -7,6 +7,7 @@ import '../../../core/widgets/main_scaffold.dart';
 import '../models/bible_book.dart';
 import '../services/bible_api.dart';
 import '../services/bible_saved_store.dart';
+import '../services/bible_text_size_store.dart';
 import '../widgets/bible_chrome.dart';
 import '../widgets/bible_icon.dart';
 
@@ -102,15 +103,8 @@ class _BibleReaderViewState extends State<BibleReaderView> {
     setState(() => _highlightVerse = number);
   }
 
-  Future<void> _pickChapter() async {
-    final book = _book;
-    if (book == null) return;
-    final selected = await _pickNumber(
-      title: 'Buscar capítulo',
-      count: book.numberOfChapters,
-      current: _chapterNumber,
-    );
-    if (selected == null || selected == _chapterNumber) return;
+  Future<void> _goToChapter(int selected) async {
+    if (selected == _chapterNumber) return;
     setState(() {
       _chapterNumber = selected;
       _highlightVerse = 1;
@@ -300,6 +294,8 @@ class _BibleReaderViewState extends State<BibleReaderView> {
                   ],
                 ),
               ),
+              const BibleTextSizeControls(),
+              const SizedBox(width: 8),
               IconButton(
                 tooltip: 'Creador de imagen',
                 onPressed: _openImageEditor,
@@ -311,12 +307,11 @@ class _BibleReaderViewState extends State<BibleReaderView> {
           const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(
-                child: _JumpChip(
-                  label: 'Buscar capítulo',
-                  value: '$_chapterNumber',
-                  onTap: _book == null ? null : _pickChapter,
-                ),
+              BibleChapterStepper(
+                value: _chapterNumber,
+                max: _book?.numberOfChapters ?? 1,
+                enabled: _book != null && !_loading,
+                onChanged: _goToChapter,
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -352,48 +347,54 @@ class _BibleReaderViewState extends State<BibleReaderView> {
       );
     }
     final verses = _chapter!.verses;
-    return ListView.builder(
-      padding: EdgeInsets.fromLTRB(16, 4, 16, _actionVerse == null ? 28 : 96),
-      itemCount: verses.length,
-      itemBuilder: (context, i) {
-        final verse = verses[i];
-        final selected = verse.number == (_actionVerse?.number ?? _highlightVerse);
-        return KeyedSubtree(
-          key: _verseKeys[verse.number],
-          child: GestureDetector(
-            onTap: () => _onVerseTap(verse),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: selected ? KairoColors.darkCard : Colors.transparent,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 28,
-                    child: Text(
-                      '${verse.number}',
-                      style: const TextStyle(
-                        color: KairoColors.primary400,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
+    return AnimatedBuilder(
+      animation: BibleTextSizeStore.instance,
+      builder: (context, _) {
+        final size = BibleTextSizeStore.instance.size;
+        return ListView.builder(
+          padding: EdgeInsets.fromLTRB(16, 4, 16, _actionVerse == null ? 28 : 96),
+          itemCount: verses.length,
+          itemBuilder: (context, i) {
+            final verse = verses[i];
+            final selected = verse.number == (_actionVerse?.number ?? _highlightVerse);
+            return KeyedSubtree(
+              key: _verseKeys[verse.number],
+              child: GestureDetector(
+                onTap: () => _onVerseTap(verse),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: selected ? KairoColors.darkCard : Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: (28 * size / 16).clamp(28, 40),
+                        child: Text(
+                          '${verse.number}',
+                          style: TextStyle(
+                            color: KairoColors.primary400,
+                            fontWeight: FontWeight.w700,
+                            fontSize: (13 * size / 16).clamp(12, 20),
+                          ),
+                        ),
                       ),
-                    ),
+                      Expanded(
+                        child: Text(
+                          verse.text,
+                          style: TextStyle(color: Colors.white, height: 1.5, fontSize: size),
+                        ),
+                      ),
+                    ],
                   ),
-                  Expanded(
-                    child: Text(
-                      verse.text,
-                      style: const TextStyle(color: Colors.white, height: 1.5, fontSize: 16),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );

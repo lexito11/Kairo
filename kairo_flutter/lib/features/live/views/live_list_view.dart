@@ -16,43 +16,50 @@ class LiveListView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MainScaffold(
-      child: AnimatedBuilder(
-        animation: LiveCatalog.instance,
-        builder: (context, _) {
-          final streams = LiveCatalog.instance.streams;
-          final featured = streams.isNotEmpty ? streams.first : null;
-          final rest = streams.length > 1 ? streams.sublist(1) : const <LiveStream>[];
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        context.go('/feed');
+      },
+      child: MainScaffold(
+        child: AnimatedBuilder(
+          animation: LiveCatalog.instance,
+          builder: (context, _) {
+            final streams = LiveCatalog.instance.streams;
+            final featured = streams.isNotEmpty ? streams.first : null;
+            final rest = streams.length > 1 ? streams.sublist(1) : const <LiveStream>[];
 
-          return Column(
-            children: [
-              _LiveHeader(
-                onBack: () => context.canPop() ? context.pop() : context.go('/feed'),
-                onGoLive: () {
-                  if (!AuthService().isSignedIn) {
-                    context.push('/auth/signin');
-                    return;
-                  }
-                  context.push('/live/go');
-                },
-              ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  children: [
-                    const _SectionLabel('DESTACADO'),
-                    const SizedBox(height: 10),
-                    if (featured != null) _FeaturedCard(stream: featured),
-                    const SizedBox(height: 22),
-                    const _SectionLabel('MÁS TRANSMISIONES'),
-                    const SizedBox(height: 10),
-                    ...rest.map((s) => _StreamTile(stream: s)),
-                  ],
+            return Column(
+              children: [
+                _LiveHeader(
+                  onBack: () => context.go('/feed'),
+                  onGoLive: () {
+                    if (!AuthService().isSignedIn) {
+                      context.push('/auth/signin');
+                      return;
+                    }
+                    context.push('/live/go');
+                  },
                 ),
-              ),
-            ],
-          );
-        },
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    children: [
+                      const _SectionLabel('DESTACADO'),
+                      const SizedBox(height: 10),
+                      if (featured != null) _FeaturedCard(stream: featured),
+                      const SizedBox(height: 22),
+                      const _SectionLabel('MÁS TRANSMISIONES'),
+                      const SizedBox(height: 10),
+                      ...rest.map((s) => _StreamTile(stream: s)),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

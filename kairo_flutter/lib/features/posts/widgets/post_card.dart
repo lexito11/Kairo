@@ -2120,7 +2120,7 @@ class _KindBanner extends StatelessWidget {
       ),
       child: const Row(
         children: [
-          Text('✨', style: TextStyle(fontSize: 16)),
+          Icon(Icons.reviews, color: Colors.white, size: 18),
           SizedBox(width: 8),
           Text('Testimonio', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
         ],

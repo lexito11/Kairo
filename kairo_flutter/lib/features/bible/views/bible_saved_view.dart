@@ -5,6 +5,7 @@ import '../../../core/theme/kairo_colors.dart';
 import '../../../core/widgets/main_scaffold.dart';
 import '../models/bible_book.dart';
 import '../services/bible_saved_store.dart';
+import '../services/bible_text_size_store.dart';
 import '../widgets/bible_chrome.dart';
 
 class BibleSavedView extends StatefulWidget {
@@ -67,6 +68,7 @@ class _BibleSavedViewState extends State<BibleSavedView> {
                     ],
                   ),
                 ),
+                BibleTextSizeControls(),
               ],
             ),
           ),
@@ -92,51 +94,61 @@ class _BibleSavedViewState extends State<BibleSavedView> {
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-      itemCount: _items.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, i) {
-        final item = _items[i];
-        return Container(
-          padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-          decoration: BoxDecoration(
-            color: KairoColors.darkCard,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.formatted,
-                      style: const TextStyle(color: KairoColors.primary400, fontWeight: FontWeight.w700, fontSize: 13),
+    return AnimatedBuilder(
+      animation: BibleTextSizeStore.instance,
+      builder: (context, _) {
+        final size = BibleTextSizeStore.instance.size;
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+          itemCount: _items.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, i) {
+            final item = _items[i];
+            return Container(
+              padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+              decoration: BoxDecoration(
+                color: KairoColors.darkCard,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.formatted,
+                          style: TextStyle(
+                            color: KairoColors.primary400,
+                            fontWeight: FontWeight.w700,
+                            fontSize: (13 * size / 16).clamp(12, 20),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          item.text,
+                          maxLines: 5,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: Colors.white, height: 1.4, fontSize: size),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      item.text,
-                      maxLines: 5,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, height: 1.4, fontSize: 14),
-                    ),
-                  ],
-                ),
+                  ),
+                  IconButton(
+                    tooltip: 'Crear imagen',
+                    onPressed: () => _openImage(item),
+                    icon: const Icon(Icons.photo_outlined, color: KairoColors.primary400),
+                  ),
+                  IconButton(
+                    tooltip: 'Quitar',
+                    onPressed: () => _remove(item),
+                    icon: const Icon(Icons.bookmark_remove_outlined, color: KairoColors.darkTextSecondary),
+                  ),
+                ],
               ),
-              IconButton(
-                tooltip: 'Crear imagen',
-                onPressed: () => _openImage(item),
-                icon: const Icon(Icons.photo_outlined, color: KairoColors.primary400),
-              ),
-              IconButton(
-                tooltip: 'Quitar',
-                onPressed: () => _remove(item),
-                icon: const Icon(Icons.bookmark_remove_outlined, color: KairoColors.darkTextSecondary),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );

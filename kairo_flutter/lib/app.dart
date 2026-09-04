@@ -30,6 +30,7 @@ import 'features/live/views/watch_live_view.dart';
 import 'features/notifications/views/notifications_view.dart';
 import 'features/personas/views/personas_view.dart';
 import 'features/posts/providers/posts_provider.dart';
+import 'features/profile/views/edit_profile_view.dart';
 import 'features/profile/views/profile_view.dart';
 import 'features/settings/views/settings_view.dart';
 import 'features/videos/views/videos_view.dart';
@@ -63,7 +64,7 @@ class _KairoAppState extends State<KairoApp> {
             path == '/events' ||
             path == '/live' ||
             path.startsWith('/live/') ||
-            path.startsWith('/profile') ||
+            (path.startsWith('/profile') && path != '/profile/edit') ||
             path == '/bible' ||
             path.startsWith('/bible/');
 
@@ -72,6 +73,7 @@ class _KairoAppState extends State<KairoApp> {
         if (path == '/notifications' && !loggedIn) return '/auth/signin';
         if (path == '/personas' && !loggedIn) return '/auth/signin';
         if (path == '/settings' && !loggedIn) return '/auth/signin';
+        if (path == '/profile/edit' && !loggedIn) return '/auth/signin';
         if (path == '/admin/churches' && !loggedIn) return '/auth/signin';
         if (path.startsWith('/chat/group/') && !loggedIn) return '/auth/signin';
         if (path.startsWith('/chat/') && path != '/chat' && !loggedIn) return '/auth/signin';
@@ -107,6 +109,7 @@ class _KairoAppState extends State<KairoApp> {
             otherUserName: Uri.decodeComponent(state.uri.queryParameters['name'] ?? 'Chat'),
           ),
         ),
+        GoRoute(path: '/profile/edit', builder: (_, __) => const EditProfileView()),
         GoRoute(
           path: '/profile',
           builder: (context, state) => ProfileView(userId: state.uri.queryParameters['userId']),

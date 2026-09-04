@@ -1,8 +1,10 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
+import '../../../core/models/kairo_user.dart';
 import '../../../core/models/post.dart';
 import '../../../core/services/prefs_service.dart';
 import '../../../core/services/storage_service.dart';
@@ -10,12 +12,18 @@ import '../../../core/theme/kairo_colors.dart';
 import '../../../core/widgets/kairo_avatar.dart';
 import '../../../core/widgets/main_scaffold.dart';
 import '../../../features/auth/services/auth_service.dart';
+import '../../../core/navigation/app_route_observer.dart';
 import '../../../core/providers/social_summary_provider.dart';
 import '../../posts/services/posts_repository.dart';
 import '../../posts/widgets/comments_sheet.dart';
 import '../../posts/widgets/post_card.dart';
+import '../../posts/widgets/share_sheet.dart';
+import '../../stories/services/stories_repository.dart';
 import '../../users/services/users_repository.dart';
 import '../widgets/feelings_selector.dart';
+import '../widgets/moments_strip.dart';
+import 'cover_crop_view.dart';
+
 
 class ProfileView extends StatefulWidget {
   const ProfileView({super.key, this.userId});
@@ -26,7 +34,7 @@ class ProfileView extends StatefulWidget {
   State<ProfileView> createState() => _ProfileViewState();
 }
 
-class _ProfileViewState extends State<ProfileView> {
+class _ProfileViewState extends State<ProfileView> with RouteAware {
   final _usersRepo = UsersRepository();
   final _postsRepo = PostsRepository();
   final _prefs = PrefsService();
@@ -37,7 +45,10 @@ class _ProfileViewState extends State<ProfileView> {
   String _tab = 'publicaciones';
   bool _loading = true;
   bool _followLoading = false;
-  bool _changingPhoto = false;
+  bool _publishingStory = false;
+  bool _changingCover = false;
+  bool _hasActiveStory = false;
+  bool _subscribed = false;
 
   String? get _viewedUserId => widget.userId ?? AuthService().currentUser?.id;
   bool get _isOwner => widget.userId == null || widget.userId == AuthService().currentUser?.id;
@@ -48,39 +59,95 @@ class _ProfileViewState extends State<ProfileView> {
     _load();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_subscribed) return;
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      appRouteObserver.subscribe(this, route);
+      _subscribed = true;
+    }
+  }
+
+  @override
+  void didPopNext() {
+    _load();
+  }
+
+  @override
+  void dispose() {
+    if (_subscribed) appRouteObserver.unsubscribe(this);
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final uid = _viewedUserId;
     if (uid == null) {
       setState(() => _loading = false);
       return;
     }
-    setState(() => _loading = true);
-    try {
-      final profile = await _usersRepo.getUserProfile(uid);
-      final posts = await _postsRepo.fetchUserPosts(uid);
-      var saved = <Post>[];
-      if (_isOwner) {
-        final summary = await _usersRepo.getSocialSummary();
-        if (mounted) {
-          context.read<SocialSummaryProvider>().update(
-                unread: summary.unreadCount,
-                friends: summary.friendsCount,
-              );
-        }
-        final ids = await _prefs.getSavedPostIds();
-        if (ids.isNotEmpty) saved = await _postsRepo.fetchPostsByIds(ids);
-      }
-      if (mounted) {
-        setState(() {
-          _profile = profile;
-          _posts = posts;
-          if (_isOwner) _savedPosts = saved;
-          _loading = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    if (_profile == null) {
+      setState(() => _loading = true);
     }
+    try {
+      var profile = await _usersRepo.getUserProfile(uid);
+      if (_isOwner) {
+        try {
+          profile = profile.copyWith(user: await _usersRepo.ensureGeneratedUsername(profile.user));
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      setState(() {
+        _profile = profile;
+        _loading = false;
+      });
+    } catch (_) {
+      try {
+        final me = await _usersRepo.getCurrentUser();
+        if (me != null && _isOwner && mounted) {
+          setState(() {
+            _profile = UserProfileData(
+              user: me,
+              agregados: 0,
+              teAgregaron: 0,
+              viewerHasAdded: false,
+            );
+            _loading = false;
+          });
+        } else if (mounted) {
+          setState(() => _loading = false);
+        }
+      } catch (_) {
+        if (mounted) setState(() => _loading = false);
+      }
+    }
+
+    try {
+      final posts = await _postsRepo.fetchUserPosts(uid);
+      if (mounted) setState(() => _posts = posts);
+    } catch (_) {}
+
+    try {
+      final hasStory = await StoriesRepository().hasActiveStories(uid);
+      if (mounted) setState(() => _hasActiveStory = hasStory);
+    } catch (_) {}
+
+    if (!_isOwner) return;
+    try {
+      final summary = await _usersRepo.getSocialSummary();
+      if (mounted) {
+        context.read<SocialSummaryProvider>().update(
+              unread: summary.unreadCount,
+              friends: summary.friendsCount,
+            );
+      }
+    } catch (_) {}
+    try {
+      final ids = await _prefs.getSavedPostIds();
+      final saved = ids.isEmpty ? <Post>[] : await _postsRepo.fetchPostsByIds(ids);
+      if (mounted) setState(() => _savedPosts = saved);
+    } catch (_) {}
   }
 
   Future<void> _loadSaved() async {
@@ -93,89 +160,258 @@ class _ProfileViewState extends State<ProfileView> {
     setState(() => _savedPosts = posts);
   }
 
-  Future<void> _changePhoto() async {
-    if (!_isOwner || _changingPhoto) return;
+  Future<void> _addStoryFromAvatar() async {
+    if (!_isOwner || _publishingStory) return;
     final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
     if (file == null) return;
-    setState(() => _changingPhoto = true);
+    setState(() => _publishingStory = true);
     try {
       final bytes = await file.readAsBytes();
-      final url = await StorageService().uploadBytes(
+      await StoriesRepository().publishStory(
         bytes: bytes,
         fileName: file.name,
         mimeType: 'image/jpeg',
-        subfolder: 'avatars',
       );
-      await _usersRepo.updateProfile(image: url);
       if (!mounted) return;
-      final current = _profile;
-      if (current != null) {
-        setState(() => _profile = current.copyWith(user: current.user.copyWith(image: url)));
-      }
+      setState(() => _hasActiveStory = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Historia publicada')),
+      );
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo actualizar la foto de perfil')),
+          const SnackBar(content: Text('No se pudo publicar la historia')),
         );
       }
     } finally {
-      if (mounted) setState(() => _changingPhoto = false);
+      if (mounted) setState(() => _publishingStory = false);
     }
   }
 
-  Widget _profileAvatar() {
+  Future<void> _changeCover() async {
+    if (!_isOwner || _changingCover) return;
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 95);
+    if (file == null || !mounted) return;
+    final original = await file.readAsBytes();
+    if (!mounted) return;
+    final cropped = await showCoverCropper(context, original);
+    if (cropped == null || cropped.isEmpty || !mounted) return;
+    setState(() => _changingCover = true);
+    try {
+      final url = await StorageService().uploadBytes(
+        bytes: cropped,
+        fileName: 'cover.png',
+        mimeType: 'image/png',
+        subfolder: 'covers',
+      );
+      await _usersRepo.updateProfile(coverUrl: url);
+      if (!mounted) return;
+      final current = _profile;
+      if (current != null) {
+        setState(() => _profile = current.copyWith(user: current.user.copyWith(coverUrl: url)));
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Portada actualizada')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _changingCover = false);
+    }
+  }
+
+  Widget _profileHero() {
     final user = _profile?.user;
     final name = user?.displayName ?? 'Usuario';
-    final hasMood = (user?.mood ?? '').trim().isNotEmpty;
-    final avatar = KairoAvatar(imageUrl: user?.image, name: name, size: 96);
+    final handle = user?.username != null && user!.username!.isNotEmpty
+        ? '@${user.username}'
+        : '@usuario';
+    final bio = user?.bio?.trim();
+    final unread = context.watch<SocialSummaryProvider>().unreadCount;
+    const avatarSize = 112.0;
+    const bannerHeight = 248.0;
 
-    Widget photo = avatar;
-    if (hasMood) {
-      photo = Container(
-        padding: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: KairoColors.primary500, width: 2.5),
-        ),
-        child: avatar,
-      );
-    }
-
-    if (!_isOwner) return photo;
-
-    return GestureDetector(
-      onTap: _changingPhoto ? null : _changePhoto,
-      child: SizedBox(
-        width: hasMood ? 112 : 104,
-        height: hasMood ? 112 : 104,
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
-          children: [
-            photo,
-            if (_changingPhoto)
-              const SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(strokeWidth: 2, color: KairoColors.primary400),
+    return Column(
+      children: [
+        SizedBox(
+          height: bannerHeight,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: bannerHeight,
+                child: _ProfileBanner(imageUrl: user?.coverUrl),
               ),
-            Positioned(
-              right: 0,
-              bottom: 2,
-              child: Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: KairoColors.primary500,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: KairoColors.darkBg, width: 2),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 2, 12, 0),
+                    child: Row(
+                      children: [
+                        _CircleIconButton(
+                          icon: _isOwner ? Icons.menu : Icons.arrow_back,
+                          onTap: () {
+                            if (!_isOwner && context.canPop()) {
+                              context.pop();
+                              return;
+                            }
+                          },
+                        ),
+                        const Spacer(),
+                        if (_isOwner) ...[
+                          _CircleIconButton(
+                            icon: Icons.notifications_outlined,
+                            onTap: () => context.push('/notifications'),
+                            showDot: unread > 0,
+                          ),
+                          const SizedBox(width: 8),
+                          _CircleIconButton(
+                            icon: Icons.settings_outlined,
+                            onTap: () => context.push('/settings'),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
-                child: const Icon(Icons.add, color: Colors.white, size: 18),
               ),
-            ),
-          ],
+              if (_isOwner)
+                Positioned(
+                  right: 14,
+                  bottom: avatarSize * 0.42,
+                  child: Material(
+                    color: const Color(0xCC111111),
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: _changingCover ? null : _changeCover,
+                      child: SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: _changingCover
+                            ? const Padding(
+                                padding: EdgeInsets.all(10),
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.photo_camera_outlined, color: Colors.white, size: 20),
+                      ),
+                    ),
+                  ),
+                ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: SizedBox(
+                  height: avatarSize,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    clipBehavior: Clip.none,
+                    children: [
+                      GestureDetector(
+                        onTap: _isOwner && !_publishingStory ? _addStoryFromAvatar : null,
+                        child: SizedBox(
+                          width: avatarSize,
+                          height: avatarSize,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                width: avatarSize,
+                                height: avatarSize,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: _hasActiveStory ? KairoColors.successText : Colors.white,
+                                    width: 3,
+                                  ),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(3),
+                                  child: KairoAvatar(imageUrl: user?.image, name: name, size: avatarSize - 12),
+                                ),
+                              ),
+                              if (_publishingStory)
+                                const Center(
+                                  child: SizedBox(
+                                    width: 28,
+                                    height: 28,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: KairoColors.primary400),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      name,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: KairoColors.darkText, fontSize: 22, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    width: 18,
+                    height: 18,
+                    decoration: const BoxDecoration(
+                      color: KairoColors.primary500,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.check, color: Colors.white, size: 12),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                handle,
+                style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 14),
+              ),
+              const SizedBox(height: 8),
+              if (bio != null && bio.isNotEmpty)
+                Text(
+                  bio,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: KairoColors.darkText, fontSize: 14, height: 1.35),
+                )
+              else if (_isOwner)
+                const Text(
+                  'Agrega una descripción',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 14, height: 1.35),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -210,124 +446,124 @@ class _ProfileViewState extends State<ProfileView> {
   Future<void> _shareProfile() async {
     final user = _profile?.user;
     if (user == null) return;
-    final origin = Uri.base.origin;
-    final link = origin.isNotEmpty && origin != 'about:blank'
-        ? '$origin/profile?userId=${user.id}'
-        : 'kairo://profile/${user.id}';
-    await SharePlus.instance.share(
-      ShareParams(text: '${user.displayName} en KAIRO\n$link', subject: 'KAIRO'),
+    await showKairoShareSheet(
+      context,
+      title: 'Compartir perfil',
+      shareText: buildProfileShareText(user),
+      shareLink: buildProfileShareLink(user.id),
+      emailSubject: 'Perfil de ${user.displayName} en KAIRO',
+      postPreview: user.handle.isNotEmpty ? user.handle : user.displayName,
     );
   }
 
-  Future<void> _editProfile() async {
+  Future<void> _copyText(String text, String toast) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(toast)));
+  }
+
+  Future<void> _showProfileMore() async {
     final user = _profile?.user;
     if (user == null) return;
-    final name = TextEditingController(text: user.name ?? '');
-    final username = TextEditingController(text: user.username ?? '');
-    final bio = TextEditingController(text: user.bio ?? '');
-    final saved = await showModalBottomSheet<bool>(
+    final handle = user.username?.trim();
+    final hasHandle = handle != null && handle.isNotEmpty;
+
+    await showModalBottomSheet<void>(
       context: context,
-      isScrollControlled: true,
       backgroundColor: KairoColors.darkCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(20, 16, 20, 20 + MediaQuery.viewInsetsOf(ctx).bottom),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Editar perfil', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              _editField(name, 'Nombre'),
-              const SizedBox(height: 10),
-              _editField(username, 'Usuario'),
-              const SizedBox(height: 10),
-              _editField(bio, 'Biografía', maxLines: 3),
-              const SizedBox(height: 16),
-              SizedBox(
-                height: 44,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: KairoColors.primary500,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        void closeThen(VoidCallback action) {
+          Navigator.pop(ctx);
+          action();
+        }
+
+        Widget item({
+          required IconData icon,
+          required String title,
+          String? subtitle,
+          Color? color,
+          required VoidCallback onTap,
+        }) {
+          return ListTile(
+            leading: Icon(icon, color: color ?? Colors.white),
+            title: Text(title, style: TextStyle(color: color ?? Colors.white, fontWeight: FontWeight.w600)),
+            subtitle: subtitle == null
+                ? null
+                : Text(subtitle, style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12)),
+            onTap: onTap,
+          );
+        }
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: KairoColors.darkBorder,
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  child: const Text('Guardar'),
                 ),
-              ),
-            ],
+                const Text(
+                  'Más opciones',
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                item(
+                  icon: Icons.link,
+                  title: 'Copiar enlace del perfil',
+                  onTap: () => closeThen(() => _copyText(buildProfileShareLink(user.id), 'Enlace copiado')),
+                ),
+                if (hasHandle)
+                  item(
+                    icon: Icons.alternate_email,
+                    title: 'Copiar usuario',
+                    subtitle: '@$handle',
+                    onTap: () => closeThen(() => _copyText('@$handle', 'Usuario copiado')),
+                  ),
+                if (_isOwner) ...[
+                  item(
+                    icon: Icons.people_outline,
+                    title: 'Personas',
+                    onTap: () => closeThen(() => context.push('/personas')),
+                  ),
+                  item(
+                    icon: Icons.settings_outlined,
+                    title: 'Ajustes',
+                    onTap: () => closeThen(() => context.push('/settings')),
+                  ),
+                  item(
+                    icon: Icons.logout,
+                    title: 'Cerrar sesión',
+                    color: KairoColors.errorText,
+                    onTap: () => closeThen(() async {
+                      await AuthService().signOut();
+                      if (mounted) context.go('/auth/signin');
+                    }),
+                  ),
+                ],
+              ],
+            ),
           ),
         );
       },
     );
-    if (saved != true) {
-      name.dispose();
-      username.dispose();
-      bio.dispose();
-      return;
-    }
-    try {
-      await _usersRepo.updateProfile(
-        name: name.text.trim(),
-        username: username.text.trim(),
-        bio: bio.text.trim(),
-      );
-      if (!mounted) return;
-      final current = _profile;
-      if (current != null) {
-        setState(() {
-          _profile = current.copyWith(
-            user: current.user.copyWith(
-              name: name.text.trim(),
-              username: username.text.trim(),
-              bio: bio.text.trim(),
-            ),
-          );
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo guardar el perfil')),
-        );
-      }
-    } finally {
-      name.dispose();
-      username.dispose();
-      bio.dispose();
-    }
   }
 
-  TextField _editField(TextEditingController controller, String hint, {int maxLines = 1}) {
-    return TextField(
-      controller: controller,
-      maxLines: maxLines,
-      style: const TextStyle(color: Colors.white),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(color: KairoColors.darkTextSecondary),
-        filled: true,
-        fillColor: KairoColors.darkBg,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: KairoColors.darkBorder),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: KairoColors.darkBorder),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: KairoColors.primary500),
-        ),
-      ),
-    );
+  Future<void> _editProfile() async {
+    if (!_isOwner) return;
+    await context.push('/profile/edit');
+    if (mounted) await _load();
   }
+
 
   List<Post> get _displayPosts {
     switch (_tab) {
@@ -370,138 +606,137 @@ class _ProfileViewState extends State<ProfileView> {
         onRefresh: _load,
         child: CustomScrollView(
           slivers: [
-            SliverAppBar(
-              floating: true,
-              centerTitle: false,
-              backgroundColor: KairoColors.darkBg,
-              title: Text(
-                _isOwner ? 'Mi perfil' : user?.displayName ?? 'Perfil',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
-              ),
-              actions: [
-                if (_isOwner)
-                  Stack(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-                        onPressed: () => context.push('/notifications'),
-                      ),
-                      if ((context.watch<SocialSummaryProvider>().unreadCount) > 0)
-                        Positioned(
-                          right: 10, top: 10,
-                          child: Container(width: 10, height: 10, decoration: const BoxDecoration(color: KairoColors.primary500, shape: BoxShape.circle)),
-                        ),
-                    ],
-                  ),
-                if (_isOwner)
-                  IconButton(
-                    icon: const Icon(Icons.settings_outlined, color: Colors.white),
-                    onPressed: () => context.push('/settings'),
-                  ),
-              ],
-            ),
             SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-                child: Column(
-                  children: [
-                    _profileAvatar(),
-                    const SizedBox(height: 14),
-                    Text(
-                      user?.displayName ?? 'Usuario',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: KairoColors.darkText, fontSize: 22, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      user?.username != null && user!.username!.isNotEmpty
-                          ? '@${user.username}'
-                          : '@usuario',
-                      style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 14),
-                    ),
-                    if (user?.bio != null && user!.bio!.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(user.bio!, textAlign: TextAlign.center, style: const TextStyle(color: KairoColors.darkTextSecondary)),
-                    ],
-                    const SizedBox(height: 22),
-                    _StatsRow(
-                      items: _isOwner
-                          ? [
-                              ('${_posts.length}', 'Publicaciones'),
-                              ('${_profile?.agregados ?? 0}', 'Agregados'),
-                              ('${_savedPosts.length}', 'Guardados'),
-                            ]
-                          : [
-                              ('${_posts.length}', 'Publicaciones'),
-                              ('${_profile?.agregados ?? 0}', 'Agregados'),
-                              ('${_profile?.teAgregaron ?? 0}', 'Te agregaron'),
-                            ],
-                    ),
-                    if (_isOwner) ...[
-                      const SizedBox(height: 18),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SizedBox(
-                              height: 44,
-                              child: TextButton(
-                                onPressed: _editProfile,
-                                style: TextButton.styleFrom(
-                                  backgroundColor: KairoColors.darkCard,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Column(
+                children: [
+                  _profileHero(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 22, 20, 8),
+                    child: Column(
+                      children: [
+                        _StatsRow(
+                          items: _isOwner
+                              ? [
+                                  ('${_posts.length}', 'Publicaciones'),
+                                  ('${_profile?.agregados ?? 0}', 'Agregados'),
+                                  ('${_savedPosts.length}', 'Guardados'),
+                                ]
+                              : [
+                                  ('${_posts.length}', 'Publicaciones'),
+                                  ('${_profile?.agregados ?? 0}', 'Agregados'),
+                                  ('${_profile?.teAgregaron ?? 0}', 'Te agregaron'),
+                                ],
+                        ),
+                        if (_isOwner) ...[
+                          const SizedBox(height: 18),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SizedBox(
+                                  height: 44,
+                                  child: TextButton.icon(
+                                    onPressed: _editProfile,
+                                    style: TextButton.styleFrom(
+                                      backgroundColor: KairoColors.darkCard,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                    icon: const Icon(Icons.edit_outlined, size: 18),
+                                    label: const Text('Editar perfil', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                                  ),
                                 ),
-                                child: const Text('Editar perfil', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              _SquareAction(
+                                icon: Icons.share,
+                                onTap: _shareProfile,
+                              ),
+                              const SizedBox(width: 8),
+                              _SquareAction(
+                                icon: Icons.more_horiz,
+                                onTap: _showProfileMore,
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 10),
-                          SizedBox(
-                            width: 44,
-                            height: 44,
-                            child: TextButton(
-                              onPressed: _shareProfile,
-                              style: TextButton.styleFrom(
-                                backgroundColor: KairoColors.darkCard,
-                                foregroundColor: Colors.white,
-                                padding: EdgeInsets.zero,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                              child: const Icon(Icons.share, size: 20),
-                            ),
+                          const SizedBox(height: 22),
+                          FeelingsSelector(
+                            currentMood: user?.mood,
+                            moodUpdatedAt: user?.moodUpdatedAt,
+                            onChanged: (mood) {
+                              final current = _profile;
+                              if (current == null) return;
+                              setState(() {
+                                _profile = current.copyWith(
+                                  user: current.user.copyWith(
+                                    mood: mood,
+                                    moodUpdatedAt: DateTime.now(),
+                                  ),
+                                );
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 22),
+                          MomentsStrip(
+                            userId: _viewedUserId ?? AuthService().currentUser?.id ?? 'local',
+                            isOwner: true,
+                            author: user ??
+                                KairoUser(
+                                  id: _viewedUserId ?? AuthService().currentUser?.id ?? 'local',
+                                  email: AuthService().currentUser?.email ?? '',
+                                ),
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 22),
-                      FeelingsSelector(
-                        currentMood: user?.mood,
-                        onChanged: (mood) {
-                          final current = _profile;
-                          if (current == null) return;
-                          setState(() {
-                            _profile = current.copyWith(user: current.user.copyWith(mood: mood));
-                          });
-                        },
-                      ),
-                    ],
-                    if (!_isOwner && _profile != null) ...[
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _followLoading ? null : _toggleFollow,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _profile!.viewerHasAdded ? KairoColors.darkHover : KairoColors.primary500,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        if (!_isOwner && _profile != null) ...[
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SizedBox(
+                                  height: 44,
+                                  child: ElevatedButton(
+                                    onPressed: _followLoading ? null : _toggleFollow,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _profile!.viewerHasAdded ? KairoColors.darkHover : KairoColors.primary500,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                    child: Text(_profile!.viewerHasAdded ? 'Agregado' : 'Agregar'),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              _SquareAction(
+                                icon: Icons.share,
+                                onTap: _shareProfile,
+                              ),
+                              const SizedBox(width: 8),
+                              _SquareAction(
+                                icon: Icons.more_horiz,
+                                onTap: _showProfileMore,
+                              ),
+                            ],
                           ),
-                          child: Text(_profile!.viewerHasAdded ? 'Agregado' : 'Agregar'),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+                          if (user != null && user.hasActiveMood) ...[
+                            const SizedBox(height: 22),
+                            FeelingsSelector(
+                              currentMood: user.mood,
+                              moodUpdatedAt: user.moodUpdatedAt,
+                              isOwner: false,
+                            ),
+                          ],
+                          if (user != null && _viewedUserId != null) ...[
+                            const SizedBox(height: 22),
+                            MomentsStrip(
+                              userId: _viewedUserId!,
+                              isOwner: false,
+                              author: user,
+                            ),
+                          ],
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
             SliverToBoxAdapter(
@@ -608,6 +843,177 @@ class _ProfileViewState extends State<ProfileView> {
       ),
     );
   }
+}
+
+class _SquareAction extends StatelessWidget {
+  const _SquareAction({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: TextButton(
+        onPressed: onTap,
+        style: TextButton.styleFrom(
+          backgroundColor: KairoColors.darkCard,
+          foregroundColor: Colors.white,
+          padding: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+        child: Icon(icon, size: 20),
+      ),
+    );
+  }
+}
+
+class _CircleIconButton extends StatelessWidget {
+  const _CircleIconButton({
+    required this.icon,
+    required this.onTap,
+    this.showDot = false,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool showDot;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Material(
+          color: KairoColors.darkCard.withValues(alpha: 0.88),
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: SizedBox(
+              width: 40,
+              height: 40,
+              child: Icon(icon, color: Colors.white, size: 20),
+            ),
+          ),
+        ),
+        if (showDot)
+          Positioned(
+            right: 4,
+            top: 4,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: const BoxDecoration(
+                color: KairoColors.primary500,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _CoverWaveClipper extends CustomClipper<Path> {
+  const _CoverWaveClipper();
+
+  @override
+  Path getClip(Size size) {
+    return _coverWavePath(size);
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+Path _coverWavePath(Size size) {
+  final w = size.width;
+  final h = size.height;
+  return Path()
+    ..moveTo(0, 0)
+    ..lineTo(w, 0)
+    ..lineTo(w, h * 0.74)
+    ..cubicTo(w * 0.90, h * 0.72, w * 0.78, h * 0.80, w * 0.62, h * 0.90)
+    ..cubicTo(w * 0.52, h * 0.95, w * 0.44, h * 0.94, w * 0.34, h * 0.89)
+    ..cubicTo(w * 0.20, h * 0.85, w * 0.10, h * 0.88, 0, h * 0.90)
+    ..close();
+}
+
+class _ProfileBanner extends StatelessWidget {
+  const _ProfileBanner({this.imageUrl});
+
+  final String? imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipPath(
+      clipper: const _CoverWaveClipper(),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const ColoredBox(color: KairoColors.darkCard),
+          if (imageUrl != null)
+            CachedNetworkImage(imageUrl: imageUrl!, fit: BoxFit.cover)
+          else
+            const CustomPaint(painter: _BannerPainter()),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x220A0A0A),
+                  Color(0x000A0A0A),
+                  Color(0x660A0A0A),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BannerPainter extends CustomPainter {
+  const _BannerPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final fill = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [KairoColors.primary700, KairoColors.darkCard, KairoColors.purple600],
+      ).createShader(rect);
+    canvas.drawRect(rect, fill);
+
+    final wave = Paint()
+      ..color = KairoColors.primary400.withValues(alpha: 0.22)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6;
+    final path = Path()
+      ..moveTo(0, size.height * 0.55)
+      ..cubicTo(size.width * 0.25, size.height * 0.25, size.width * 0.45, size.height * 0.85, size.width * 0.7, size.height * 0.45)
+      ..cubicTo(size.width * 0.85, size.height * 0.22, size.width * 0.95, size.height * 0.4, size.width, size.height * 0.3);
+    canvas.drawPath(path, wave);
+
+    final wave2 = Paint()
+      ..color = KairoColors.purple500.withValues(alpha: 0.2)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4;
+    final path2 = Path()
+      ..moveTo(0, size.height * 0.72)
+      ..cubicTo(size.width * 0.3, size.height * 0.95, size.width * 0.55, size.height * 0.4, size.width, size.height * 0.62);
+    canvas.drawPath(path2, wave2);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _StatsRow extends StatelessWidget {

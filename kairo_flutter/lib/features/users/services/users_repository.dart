@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/kairo_user.dart';
+import '../../../core/utils/username.dart';
 
 class UserProfileData {
   const UserProfileData({
@@ -86,36 +87,40 @@ class UsersRepository {
   }
 
   Future<UserProfileData> getUserProfile(String userId) async {
-    final userRow = await _client.from('users').select('id, email, name, username, image, bio, mood').eq('id', userId).single();
+    final userRow = await _client.from('users').select().eq('id', userId).maybeSingle();
+    if (userRow == null) {
+      throw Exception('No se encontró el perfil');
+    }
     final user = KairoUser.fromJson(userRow);
 
-    final agregados = await _client
-        .from('follows')
-        .select('id')
-        .eq('follower_id', userId);
-    final teAgregaron = await _client
-        .from('follows')
-        .select('id')
-        .eq('following_id', userId);
-
+    var agregados = 0;
+    var teAgregaron = 0;
     var viewerHasAdded = false;
-    final uid = _userId;
-    if (uid != null && uid != userId) {
-      final row = await _client
-          .from('follows')
-          .select('id')
-          .eq('follower_id', uid)
-          .eq('following_id', userId)
-          .maybeSingle();
-      viewerHasAdded = row != null;
-    }
-
-    final friendsCount = uid == userId ? await _countFriends(userId) : 0;
+    var friendsCount = 0;
+    try {
+      final added = await _client.from('follows').select('id').eq('follower_id', userId);
+      agregados = (added as List).length;
+      final incoming = await _client.from('follows').select('id').eq('following_id', userId);
+      teAgregaron = (incoming as List).length;
+      final uid = _userId;
+      if (uid != null && uid != userId) {
+        final row = await _client
+            .from('follows')
+            .select('id')
+            .eq('follower_id', uid)
+            .eq('following_id', userId)
+            .maybeSingle();
+        viewerHasAdded = row != null;
+      }
+      if (uid == userId) {
+        friendsCount = await _countFriends(userId);
+      }
+    } catch (_) {}
 
     return UserProfileData(
       user: user,
-      agregados: (agregados as List).length,
-      teAgregaron: (teAgregaron as List).length,
+      agregados: agregados,
+      teAgregaron: teAgregaron,
       viewerHasAdded: viewerHasAdded,
       friendsCount: friendsCount,
     );
@@ -168,22 +173,35 @@ class UsersRepository {
     final uid = _userId;
     if (uid == null) return (unreadCount: 0, friendsCount: 0);
 
-    final unreadFollows = await _client
-        .from('follows')
-        .select('id')
-        .eq('following_id', uid)
-        .isFilter('seen_by_followee_at', null);
+    var inviteCount = 0;
+    try {
+      final unreadInvites = await _client
+          .from('chat_group_invites')
+          .select('id')
+          .eq('invitee_id', uid)
+          .eq('status', 'pending')
+          .isFilter('seen_at', null);
+      inviteCount = (unreadInvites as List).length;
+    } catch (_) {}
 
-    final unreadInvites = await _client
-        .from('chat_group_invites')
-        .select('id')
-        .eq('invitee_id', uid)
-        .eq('status', 'pending')
-        .isFilter('seen_at', null);
+    var unreadFollowCount = 0;
+    try {
+      final unreadFollows = await _client
+          .from('follows')
+          .select('id')
+          .eq('following_id', uid)
+          .isFilter('seen_by_followee_at', null);
+      unreadFollowCount = (unreadFollows as List).length;
+    } catch (_) {}
+
+    var friendsCount = 0;
+    try {
+      friendsCount = await _countFriends(uid);
+    } catch (_) {}
 
     return (
-      unreadCount: (unreadFollows as List).length + (unreadInvites as List).length,
-      friendsCount: await _countFriends(uid),
+      unreadCount: unreadFollowCount + inviteCount,
+      friendsCount: friendsCount,
     );
   }
 
@@ -382,20 +400,136 @@ class UsersRepository {
   Future<void> updateMood(String mood) async {
     final uid = _userId;
     if (uid == null) throw Exception('Debes iniciar sesión');
+    final row = await _client.from('users').select('mood_updated_at').eq('id', uid).maybeSingle();
+    final last = DateTime.tryParse(row?['mood_updated_at']?.toString() ?? '');
+    if (last != null && DateTime.now().toUtc().difference(last.toUtc()) < KairoUser.moodLockDuration) {
+      throw Exception('Podrás cambiar cómo te sientes después de 24 horas');
+    }
     await _client.from('users').update({
       'mood': mood,
-      'mood_updated_at': DateTime.now().toIso8601String(),
+      'mood_updated_at': DateTime.now().toUtc().toIso8601String(),
     }).eq('id', uid);
   }
 
-  Future<void> updateProfile({String? name, String? username, String? bio, String? image}) async {
+  Future<bool> getSaveStoryArchive() async {
+    final uid = _userId;
+    if (uid == null) return true;
+    try {
+      final row = await _client.from('users').select('save_story_archive').eq('id', uid).maybeSingle();
+      return row?['save_story_archive'] as bool? ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> updateSaveStoryArchive(bool value) async {
     final uid = _userId;
     if (uid == null) throw Exception('Debes iniciar sesión');
-    await _client.from('users').update({
+    await _client.from('users').update({'save_story_archive': value}).eq('id', uid);
+  }
+
+  Future<bool> isUsernameTaken(String username) async {
+    final uid = _userId;
+    if (username.isEmpty) return false;
+    final row = await _client.from('users').select('id').eq('username', username).maybeSingle();
+    if (row == null) return false;
+    return row['id'] != uid;
+  }
+
+  Future<String> generateAvailableUsername(String seed) async {
+    var base = UsernamePolicy.sanitize(seed);
+    if (base.length < UsernamePolicy.minLength) base = UsernamePolicy.seedFromEmail(seed);
+    var candidate = base;
+    var i = 0;
+    while (await isUsernameTaken(candidate)) {
+      i++;
+      final suffix = i.toString();
+      final keep = (UsernamePolicy.maxLength - suffix.length).clamp(1, base.length);
+      candidate = '${base.substring(0, keep)}$suffix';
+      if (i > 80) {
+        candidate = 'user${DateTime.now().millisecondsSinceEpoch % 100000}';
+        break;
+      }
+    }
+    return candidate;
+  }
+
+  Future<KairoUser> ensureGeneratedUsername(KairoUser user) async {
+    final current = user.username?.trim();
+    if (current != null && current.isNotEmpty) return user;
+    final generated = await generateAvailableUsername(UsernamePolicy.seedFromEmail(user.email));
+    await _client.from('users').update({'username': generated}).eq('id', user.id);
+    return user.copyWith(username: generated);
+  }
+
+  String _mapProfileError(PostgrestException e) {
+    final code = e.code ?? '';
+    final message = e.message;
+    if (code == '23505' || message.contains('users_username')) {
+      return 'Ese nombre de usuario ya está en uso';
+    }
+    if (message.contains('USERNAME_COOLDOWN') || code == 'P0001') {
+      return 'El usuario se cambia una sola vez cada 6 meses';
+    }
+    if (message.contains('USERNAME_INVALID')) {
+      return 'El usuario debe tener entre 3 y 20 caracteres (letras, números o _)';
+    }
+    return message.isNotEmpty ? message : 'No se pudo guardar el perfil';
+  }
+
+  Future<void> updateProfile({String? name, String? username, String? bio, String? image, String? coverUrl}) async {
+    final uid = _userId;
+    if (uid == null) throw Exception('Debes iniciar sesión');
+
+    final payload = <String, dynamic>{
       if (name != null) 'name': name,
-      if (username != null) 'username': username,
       if (bio != null) 'bio': bio,
       if (image != null) 'image': image,
-    }).eq('id', uid);
+      if (coverUrl != null) 'cover_url': coverUrl,
+    };
+
+    if (username != null) {
+      final cleaned = UsernamePolicy.sanitize(username);
+      final invalid = UsernamePolicy.validate(cleaned);
+      if (invalid != null) throw Exception(invalid);
+
+      final current = await getCurrentUser();
+      final currentName = current?.username?.trim() ?? '';
+      if (cleaned != currentName) {
+        if (!UsernamePolicy.canChange(current?.usernameChangedAt)) {
+          throw Exception(UsernamePolicy.cooldownMessage(current!.usernameChangedAt!));
+        }
+        if (await isUsernameTaken(cleaned)) {
+          throw Exception('Ese nombre de usuario ya está en uso');
+        }
+        payload['username'] = cleaned;
+        if (currentName.isNotEmpty) {
+          payload['username_changed_at'] = DateTime.now().toUtc().toIso8601String();
+        }
+      }
+    }
+
+    if (payload.isEmpty) return;
+    try {
+      await _client.from('users').update(payload).eq('id', uid);
+    } on PostgrestException catch (e) {
+      final missingColumn = e.code == '42703' ||
+          e.message.contains('username_changed_at') ||
+          e.message.contains('cover_url');
+      if (missingColumn && (payload.containsKey('username_changed_at') || payload.containsKey('cover_url'))) {
+        payload.remove('username_changed_at');
+        payload.remove('cover_url');
+        if (payload.isEmpty) {
+          throw Exception('No se pudo guardar la portada. Ejecuta en Supabase la migración 020_profile_cover.sql');
+        }
+        try {
+          await _client.from('users').update(payload).eq('id', uid);
+          return;
+        } on PostgrestException catch (retry) {
+          throw Exception(_mapProfileError(retry));
+        }
+      }
+      throw Exception(_mapProfileError(e));
+    }
   }
 }
