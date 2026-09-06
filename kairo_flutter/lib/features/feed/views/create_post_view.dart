@@ -364,6 +364,21 @@ class _ComposePreview extends StatelessWidget {
   }
 }
 
+Widget _kindIcon(PostKind kind, {required Color color}) {
+  final asset = switch (kind) {
+    PostKind.testimony => 'assets/icons/testimony.png',
+    PostKind.prayer => 'assets/icons/prayer.png',
+    PostKind.post => 'assets/icons/publication.png',
+  };
+  return Image.asset(
+    asset,
+    width: 24,
+    height: 24,
+    color: color,
+    colorBlendMode: BlendMode.srcIn,
+  );
+}
+
 class _KindTile extends StatelessWidget {
   const _KindTile({required this.kind, required this.label, required this.hint, required this.selected, required this.onTap});
   final PostKind kind;
@@ -385,12 +400,8 @@ class _KindTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(
-              kind == PostKind.prayer
-                  ? Icons.favorite
-                  : kind == PostKind.testimony
-                      ? Icons.reviews
-                      : Icons.edit,
+            _kindIcon(
+              kind,
               color: selected ? KairoColors.primary400 : KairoColors.darkTextSecondary,
             ),
             const SizedBox(width: 12),

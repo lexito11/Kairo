@@ -195,18 +195,10 @@ class _VideoPostOverlayState extends State<VideoPostOverlay> {
               ),
               const SizedBox(height: 14),
               _VideoActionButton(
-                icon: _saved ? Icons.bookmark : Icons.bookmark_border,
-                label: _saved ? 'Guardado' : 'Guardar',
-                onTap: _toggleSaved,
+                icon: Icons.more_vert,
+                label: 'Más',
+                onTap: () => _showPostMenu(context),
               ),
-              if (widget.isOwner && widget.onMenuSelected != null) ...[
-                const SizedBox(height: 14),
-                _VideoActionButton(
-                  icon: Icons.more_vert,
-                  label: 'Más',
-                  onTap: () => _showOwnerMenu(context),
-                ),
-              ],
               const SizedBox(height: 16),
               GestureDetector(
                 onTap: () => context.push('/profile?userId=${post.author.id}'),
@@ -230,7 +222,7 @@ class _VideoPostOverlayState extends State<VideoPostOverlay> {
     );
   }
 
-  void _showOwnerMenu(BuildContext context) {
+  void _showPostMenu(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: KairoColors.darkCard,
@@ -241,15 +233,24 @@ class _VideoPostOverlayState extends State<VideoPostOverlay> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (widget.isOwner)
+              ListTile(
+                leading: const Icon(Icons.edit_outlined, color: KairoColors.darkText),
+                title: const Text('Editar publicación', style: TextStyle(color: KairoColors.darkText)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onMenuSelected?.call('edit');
+                },
+              ),
             ListTile(
-              leading: const Icon(Icons.edit_outlined, color: KairoColors.darkText),
-              title: const Text('Editar texto', style: TextStyle(color: KairoColors.darkText)),
+              leading: Icon(_saved ? Icons.bookmark : Icons.bookmark_border, color: KairoColors.darkText),
+              title: Text(_saved ? 'Guardado' : 'Guardar', style: const TextStyle(color: KairoColors.darkText)),
               onTap: () {
                 Navigator.pop(ctx);
-                widget.onMenuSelected?.call('edit');
+                _toggleSaved();
               },
             ),
-            if (widget.post.content.isNotEmpty)
+            if (widget.isOwner && widget.post.content.isNotEmpty)
               ListTile(
                 leading: const Icon(Icons.text_fields_outlined, color: KairoColors.errorText),
                 title: const Text('Eliminar texto', style: TextStyle(color: KairoColors.errorText)),
@@ -258,14 +259,15 @@ class _VideoPostOverlayState extends State<VideoPostOverlay> {
                   widget.onMenuSelected?.call('delete_text');
                 },
               ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: KairoColors.errorText),
-              title: const Text('Eliminar publicación', style: TextStyle(color: KairoColors.errorText)),
-              onTap: () {
-                Navigator.pop(ctx);
-                widget.onMenuSelected?.call('delete_post');
-              },
-            ),
+            if (widget.isOwner)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: KairoColors.errorText),
+                title: const Text('Eliminar publicación', style: TextStyle(color: KairoColors.errorText)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onMenuSelected?.call('delete_post');
+                },
+              ),
           ],
         ),
       ),

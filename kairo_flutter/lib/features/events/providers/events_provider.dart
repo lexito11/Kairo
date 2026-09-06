@@ -370,7 +370,7 @@ class EventsProvider extends ChangeNotifier {
       churchFormData = ChurchFormData.empty;
       _showPendingNotice(
         title: 'En revisión',
-        message: 'Tu solicitud de iglesia está siendo evaluada por nuestro equipo.',
+        message: 'Tu solicitud fue enviada al administrador de KAIRO. Te avisaremos cuando sea revisada.',
       );
     } catch (e) {
       churchSubmitError = e.toString().replaceFirst('Exception: ', '');

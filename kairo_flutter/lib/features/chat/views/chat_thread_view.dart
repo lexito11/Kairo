@@ -88,6 +88,65 @@ class _ChatThreadViewState extends State<ChatThreadView> {
     }
   }
 
+  Future<void> _removeFriend() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: KairoColors.darkCard,
+        title: Text('¿Quitar a ${widget.otherUserName} de amigos?', style: const TextStyle(color: Colors.white)),
+        content: const Text(
+          'Dejará de estar en tus amigos. El chat no se borra.',
+          style: TextStyle(color: KairoColors.darkTextSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Eliminar')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _users.removeFriendship(widget.otherUserId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${widget.otherUserName} ya no está en tus amigos')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo quitar: $e')));
+    }
+  }
+
+  Future<void> _blockUser() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: KairoColors.darkCard,
+        title: Text('¿Bloquear a ${widget.otherUserName}?', style: const TextStyle(color: Colors.white)),
+        content: const Text(
+          'Dejará de ser tu amigo y quedará en Ajustes → Personas. Desde ahí puedes desbloquearlo.',
+          style: TextStyle(color: KairoColors.darkTextSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Bloquear')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _users.blockUser(widget.otherUserId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${widget.otherUserName} fue bloqueado')),
+      );
+      if (context.canPop()) context.pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo bloquear: $e')));
+    }
+  }
+
   String _timeLabel(DateTime d) {
     final h = d.hour.toString().padLeft(2, '0');
     final m = d.minute.toString().padLeft(2, '0');
@@ -117,6 +176,8 @@ class _ChatThreadViewState extends State<ChatThreadView> {
               name: widget.otherUserName,
               imageUrl: _otherImage,
               onBack: () => context.pop(),
+              onRemoveFriend: _removeFriend,
+              onBlock: _blockUser,
             ),
             Expanded(
               child: ScrollConfiguration(
@@ -248,12 +309,16 @@ class _ThreadHeader extends StatelessWidget {
   const _ThreadHeader({
     required this.name,
     required this.onBack,
+    required this.onRemoveFriend,
+    required this.onBlock,
     this.imageUrl,
   });
 
   final String name;
   final String? imageUrl;
   final VoidCallback onBack;
+  final VoidCallback onRemoveFriend;
+  final VoidCallback onBlock;
 
   @override
   Widget build(BuildContext context) {
@@ -310,10 +375,20 @@ class _ThreadHeader extends StatelessWidget {
               ],
             ),
           ),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.more_vert,
-                color: KairoColors.darkTextSecondary),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: KairoColors.darkTextSecondary),
+            color: KairoColors.darkCard,
+            onSelected: (value) {
+              if (value == 'remove') onRemoveFriend();
+              if (value == 'block') onBlock();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'remove', child: Text('Eliminar de amigos')),
+              PopupMenuItem(
+                value: 'block',
+                child: Text('Bloquear', style: TextStyle(color: KairoColors.errorText)),
+              ),
+            ],
           ),
         ],
       ),

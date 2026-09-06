@@ -120,4 +120,29 @@ class PrefsService {
     final list = await getPinnedChatIds();
     return list.contains(userId);
   }
+
+  static const _passwordFailsPrefix = 'password-change-fails-';
+  static const passwordChangeMaxAttempts = 5;
+
+  Future<int> getPasswordChangeFails(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('$_passwordFailsPrefix$userId') ?? 0;
+  }
+
+  Future<int> addPasswordChangeFail(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final next = (prefs.getInt('$_passwordFailsPrefix$userId') ?? 0) + 1;
+    await prefs.setInt('$_passwordFailsPrefix$userId', next);
+    return next;
+  }
+
+  Future<void> clearPasswordChangeFails(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('$_passwordFailsPrefix$userId');
+  }
+
+  Future<bool> isPasswordChangeLocked(String userId) async {
+    final fails = await getPasswordChangeFails(userId);
+    return fails >= passwordChangeMaxAttempts;
+  }
 }

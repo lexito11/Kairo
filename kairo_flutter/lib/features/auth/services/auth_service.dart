@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/prefs_service.dart';
 import '../../../core/utils/username.dart';
 
 class AuthService {
@@ -9,6 +11,16 @@ class AuthService {
   User? get currentUser => _client.auth.currentUser;
   Session? get currentSession => _client.auth.currentSession;
   bool get isSignedIn => currentSession != null;
+
+  static bool passwordRecoveryPending = false;
+  static void markPasswordRecovery() => passwordRecoveryPending = true;
+  static void clearPasswordRecovery() => passwordRecoveryPending = false;
+
+  String? get registeredEmail {
+    final email = currentUser?.email?.trim();
+    if (email == null || email.isEmpty) return null;
+    return email;
+  }
 
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
 
@@ -53,6 +65,79 @@ class AuthService {
   }
 
   Future<void> signOut() => _client.auth.signOut();
+
+  Future<void> updatePassword(String newPassword) async {
+    final trimmed = newPassword.trim();
+    if (trimmed.length < 6) {
+      throw AuthException('La contraseña debe tener al menos 6 caracteres');
+    }
+    await _client.auth.updateUser(UserAttributes(password: trimmed));
+  }
+
+  Future<bool> verifyCurrentPassword(String password) async {
+    final email = registeredEmail;
+    if (email == null) throw AuthException('No hay un correo registrado en KAIRO');
+    try {
+      await _client.auth.signInWithPassword(email: email, password: password);
+      return true;
+    } on AuthException {
+      return false;
+    }
+  }
+
+  Future<void> changePasswordInApp({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final uid = currentUser?.id;
+    final email = registeredEmail;
+    if (uid == null || email == null) {
+      throw AuthException('Debes iniciar sesión con tu cuenta de KAIRO');
+    }
+    final prefs = PrefsService();
+    if (await prefs.isPasswordChangeLocked(uid)) {
+      throw AuthException(
+        'Demasiados intentos. Confirma tu identidad desde el correo registrado: $email',
+      );
+    }
+    final ok = await verifyCurrentPassword(currentPassword);
+    if (!ok) {
+      final fails = await prefs.addPasswordChangeFail(uid);
+      final left = PrefsService.passwordChangeMaxAttempts - fails;
+      if (left <= 0) {
+        throw AuthException(
+          'Agotaste los 5 intentos. Debes confirmar tu identidad en $email para cambiar la contraseña.',
+        );
+      }
+      throw AuthException('Contraseña actual incorrecta. Te quedan $left intento${left == 1 ? '' : 's'}.');
+    }
+    await updatePassword(newPassword);
+    await prefs.clearPasswordChangeFails(uid);
+  }
+
+  Future<void> changePasswordFromEmailRecovery(String newPassword) async {
+    if (!passwordRecoveryPending) {
+      throw AuthException('Debes abrir el enlace enviado al correo registrado en KAIRO.');
+    }
+    final uid = currentUser?.id;
+    await updatePassword(newPassword);
+    if (uid != null) await PrefsService().clearPasswordChangeFails(uid);
+    clearPasswordRecovery();
+  }
+
+  Future<void> sendPasswordRecoveryToRegisteredEmail() async {
+    final email = registeredEmail;
+    if (email == null) throw AuthException('No hay un correo registrado en KAIRO');
+    await _client.auth.resetPasswordForEmail(
+      email,
+      redirectTo: _recoveryRedirect(),
+    );
+  }
+
+  static String _recoveryRedirect() {
+    if (kIsWeb) return '${Uri.base.origin}/#/auth/reset-password';
+    return '${Uri.base.origin}/auth/reset-password';
+  }
 
   Future<bool> _isUsernameTaken(String username) async {
     try {

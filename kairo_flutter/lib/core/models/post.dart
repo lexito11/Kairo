@@ -62,6 +62,21 @@ class Post implements PostLike {
 
   bool get isPrayer => postKind == PostKind.prayer;
   bool get isTestimony => postKind == PostKind.testimony;
+  bool get hasMedia => mediaItems.isNotEmpty;
+  bool get isTextOnly => !hasMedia && content.trim().isNotEmpty;
+
+  /// Si el post es un versículo (`texto` + cita tipo `Juan 3:16 - RVR09`).
+  ({String text, String? citation}) get textAndCitation {
+    final raw = content.trim();
+    final parts = raw.split(RegExp(r'\n+')).where((e) => e.trim().isNotEmpty).toList();
+    if (parts.length < 2) return (text: raw, citation: null);
+    final last = parts.last.trim();
+    final isCitation = RegExp(
+      r'^.+\s+\d+:\d+(?:\s*-\s*\d+:\d+)?(?:\s*-\s*[A-Za-z0-9]+)?\s*$',
+    ).hasMatch(last);
+    if (!isCitation) return (text: raw, citation: null);
+    return (text: parts.sublist(0, parts.length - 1).join('\n\n'), citation: last);
+  }
 
   /// Un único archivo y es video → permite expansión a pantalla completa en el feed.
   bool get isSoloVideo {

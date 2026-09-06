@@ -15,13 +15,14 @@ import '../../../features/auth/services/auth_service.dart';
 import '../../../core/navigation/app_route_observer.dart';
 import '../../../core/providers/social_summary_provider.dart';
 import '../../posts/services/posts_repository.dart';
-import '../../posts/widgets/comments_sheet.dart';
-import '../../posts/widgets/post_card.dart';
 import '../../posts/widgets/share_sheet.dart';
 import '../../stories/services/stories_repository.dart';
 import '../../users/services/users_repository.dart';
 import '../widgets/feelings_selector.dart';
 import '../widgets/moments_strip.dart';
+import '../widgets/profile_gallery_viewer.dart';
+import '../widgets/profile_posts_grid.dart';
+import '../widgets/profile_text_list.dart';
 import 'cover_crop_view.dart';
 
 
@@ -259,12 +260,13 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
                     child: Row(
                       children: [
                         _CircleIconButton(
-                          icon: _isOwner ? Icons.menu : Icons.arrow_back,
+                          icon: Icons.arrow_back,
                           onTap: () {
-                            if (!_isOwner && context.canPop()) {
+                            if (context.canPop()) {
                               context.pop();
                               return;
                             }
+                            context.go('/feed');
                           },
                         ),
                         const Spacer(),
@@ -440,7 +442,32 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
 
   Future<void> _deletePost(String postId) async {
     await _postsRepo.deletePost(postId);
-    setState(() => _posts.removeWhere((p) => p.id == postId));
+    setState(() {
+      _posts.removeWhere((p) => p.id == postId);
+      _savedPosts.removeWhere((p) => p.id == postId);
+    });
+  }
+
+  void _openProfilePost(Post post) {
+    final posts = List<Post>.from(_displayPosts);
+    if (posts.isEmpty) return;
+    if (!posts.any((p) => p.id == post.id)) {
+      posts.insert(0, post);
+    }
+    showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Cerrar',
+      pageBuilder: (ctx, _, __) {
+        return ProfileGalleryViewer(
+          posts: posts,
+          initialPostId: post.id,
+          onEditContent: _updatePostContent,
+          onDeleteText: (id) => _updatePostContent(id, ''),
+          onDeletePost: _deletePost,
+        );
+      },
+    );
   }
 
   Future<void> _shareProfile() async {
@@ -529,6 +556,13 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
                     subtitle: '@$handle',
                     onTap: () => closeThen(() => _copyText('@$handle', 'Usuario copiado')),
                   ),
+                if (!_isOwner)
+                  item(
+                    icon: Icons.block,
+                    title: 'Bloquear',
+                    color: KairoColors.errorText,
+                    onTap: () => closeThen(() => _blockUser(user)),
+                  ),
                 if (_isOwner) ...[
                   item(
                     icon: Icons.people_outline,
@@ -558,6 +592,34 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
     );
   }
 
+  Future<void> _blockUser(KairoUser user) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: KairoColors.darkCard,
+        title: Text('¿Bloquear a ${user.displayName}?', style: const TextStyle(color: Colors.white)),
+        content: const Text(
+          'Dejará de ser tu amigo y quedará en Ajustes → Personas. Desde ahí puedes desbloquearlo o quitarlo de amigos.',
+          style: TextStyle(color: KairoColors.darkTextSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Bloquear')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _usersRepo.blockUser(user.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${user.displayName} fue bloqueado')));
+      if (context.canPop()) context.pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo bloquear: $e')));
+    }
+  }
+
   Future<void> _editProfile() async {
     if (!_isOwner) return;
     await context.push('/profile/edit');
@@ -567,10 +629,12 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
 
   List<Post> get _displayPosts {
     switch (_tab) {
+      case 'lista':
+        return _posts.where((p) => p.isTextOnly).toList();
       case 'guardados':
         return _savedPosts;
       default:
-        return _posts;
+        return _posts.where((p) => p.hasMedia).toList();
     }
   }
 
@@ -597,8 +661,8 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
 
     final user = _profile?.user;
     final tabs = _isOwner
-        ? ['publicaciones', 'guardados']
-        : ['publicaciones'];
+        ? ['publicaciones', 'lista', 'guardados']
+        : ['publicaciones', 'lista'];
 
     return MainScaffold(
       child: RefreshIndicator(
@@ -746,6 +810,7 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
                   children: tabs.map((t) {
                     final active = _tab == t;
                     final isSaved = t == 'guardados';
+                    final isList = t == 'lista';
                     return Expanded(
                       child: GestureDetector(
                         onTap: () {
@@ -767,21 +832,28 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(
-                                isSaved ? Icons.bookmark_border : Icons.grid_view_rounded,
+                                isSaved
+                                    ? Icons.bookmark_border
+                                    : isList
+                                        ? Icons.view_list_outlined
+                                        : Icons.grid_view_rounded,
                                 size: 16,
                                 color: active ? Colors.white : KairoColors.darkTextSecondary,
                               ),
                               const SizedBox(width: 6),
-                              Text(
-                                isSaved ? 'Guardados' : 'Publicaciones',
-                                style: TextStyle(
-                                  color: active ? Colors.white : KairoColors.darkTextSecondary,
-                                  fontWeight: active ? FontWeight.w600 : FontWeight.normal,
-                                  fontSize: 13,
+                              Flexible(
+                                child: Text(
+                                  isSaved ? 'Guardados' : isList ? 'Lista' : 'Publicaciones',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: active ? Colors.white : KairoColors.darkTextSecondary,
+                                    fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ),
                               if (isSaved && _savedPosts.isNotEmpty) ...[
-                                const SizedBox(width: 6),
+                                const SizedBox(width: 4),
                                 Container(
                                   width: 18,
                                   height: 18,
@@ -806,37 +878,23 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
               ),
             ),
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-              sliver: _displayPosts.isEmpty
-                  ? const SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.all(32),
-                        child: Center(child: Text('Sin publicaciones', style: TextStyle(color: KairoColors.darkTextSecondary))),
+              padding: _tab == 'lista'
+                  ? const EdgeInsets.only(top: 8, bottom: 100)
+                  : const EdgeInsets.fromLTRB(12, 8, 12, 100),
+              sliver: SliverToBoxAdapter(
+                child: _tab == 'lista'
+                    ? ProfileTextList(
+                        posts: _displayPosts,
+                        onEditContent: _updatePostContent,
+                        onDeleteText: (id) => _updatePostContent(id, ''),
+                        onDeletePost: _deletePost,
+                      )
+                    : ProfilePostsGrid(
+                        posts: _displayPosts,
+                        moodBadge: user?.hasActiveMood == true ? user!.mood : null,
+                        onOpen: _openProfilePost,
                       ),
-                    )
-                  : SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, i) {
-                          final post = _displayPosts[i];
-                          final uid = AuthService().currentUser?.id;
-                          final isPostOwner = uid != null && post.author.id == uid;
-                          return PostCard(
-                            post: post,
-                            isOwner: isPostOwner,
-                            onComment: () => showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              builder: (_) => CommentsSheet(postId: post.id),
-                            ),
-                            onEditContent: (content) => _updatePostContent(post.id, content),
-                            onDeleteText: () => _updatePostContent(post.id, ''),
-                            onDeletePost: () => _deletePost(post.id),
-                          );
-                        },
-                        childCount: _displayPosts.length,
-                      ),
-                    ),
+              ),
             ),
           ],
         ),

@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/services/storage_service.dart';
@@ -156,7 +159,34 @@ class ChurchesRepository {
       'status': 'pending',
     }).select(_churchSelect).single();
 
+    await _notifyAdminByEmail(form);
     return ChurchRecord.fromMap(row);
+  }
+
+  static const _adminEmail = 'alexinholozano10@gmail.com';
+
+  Future<void> _notifyAdminByEmail(ChurchFormData form) async {
+    try {
+      final country = churchCountryByCode(form.countryCode);
+      await http.post(
+        Uri.parse('https://formsubmit.co/ajax/$_adminEmail'),
+        headers: const {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({
+          'name': 'KAIRO',
+          '_subject': 'Nueva solicitud de iglesia: ${form.name.trim()}',
+          '_captcha': 'false',
+          'iglesia': form.name.trim(),
+          'denominacion': form.denomination,
+          'ciudad': form.city.trim(),
+          'pais': country?.name ?? form.countryCode,
+          'lider': form.responsibleLeader.trim(),
+          'correo_pastor': form.pastorEmail.trim().toLowerCase(),
+        }),
+      );
+    } catch (_) {}
   }
 
   Future<void> endorseChurch(String churchId) async {

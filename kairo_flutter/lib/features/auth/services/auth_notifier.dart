@@ -5,7 +5,12 @@ import 'auth_service.dart';
 
 class AuthNotifier extends ChangeNotifier {
   AuthNotifier() {
-    _sub = AuthService().authStateChanges.listen((_) => notifyListeners());
+    _sub = AuthService().authStateChanges.listen((state) {
+      if (state.event == AuthChangeEvent.passwordRecovery) {
+        AuthService.markPasswordRecovery();
+      }
+      notifyListeners();
+    });
   }
 
   late final StreamSubscription<AuthState> _sub;

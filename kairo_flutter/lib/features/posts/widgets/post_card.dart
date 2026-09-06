@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/models/post.dart';
 import '../../../core/models/kairo_user.dart';
+import '../../../core/services/prefs_service.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../core/theme/kairo_layout.dart';
 import '../../../core/utils/format_time_ago.dart';
@@ -1434,7 +1435,7 @@ class _PostInfoPanel extends StatelessWidget {
   }
 }
 
-class _PostOwnerMenu extends StatelessWidget {
+class _PostOwnerMenu extends StatefulWidget {
   const _PostOwnerMenu({
     required this.post,
     required this.isOwner,
@@ -1447,61 +1448,120 @@ class _PostOwnerMenu extends StatelessWidget {
   final void Function(String) onMenuSelected;
   final bool light;
 
+  @override
+  State<_PostOwnerMenu> createState() => _PostOwnerMenuState();
+}
+
+class _PostOwnerMenuState extends State<_PostOwnerMenu> {
+  final _prefs = PrefsService();
+  bool _saved = false;
+
   static const _kOverlayTextShadow = [
     Shadow(color: Color(0xCC000000), blurRadius: 4, offset: Offset(0, 1)),
     Shadow(color: Color(0x66000000), blurRadius: 8, offset: Offset(0, 2)),
   ];
 
   @override
-  Widget build(BuildContext context) {
-    if (!isOwner) return const SizedBox.shrink();
+  void initState() {
+    super.initState();
+    _loadSaved();
+  }
 
-    final menuColor = light ? Colors.white : KairoColors.darkTextSecondary;
+  @override
+  void didUpdateWidget(covariant _PostOwnerMenu oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.post.id != widget.post.id) _loadSaved();
+  }
+
+  Future<void> _loadSaved() async {
+    final saved = await _prefs.isPostSaved(widget.post.id);
+    if (mounted) setState(() => _saved = saved);
+  }
+
+  Future<void> _toggleSaved() async {
+    final saved = await _prefs.toggleSavedPost(widget.post.id);
+    if (!mounted) return;
+    setState(() => _saved = saved);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(saved ? 'Publicación guardada' : 'Quitada de guardados')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final menuColor = widget.light ? Colors.white : KairoColors.darkTextSecondary;
 
     return PopupMenuButton<String>(
       icon: Icon(
         Icons.more_vert,
         color: menuColor,
         size: 20,
-        shadows: light ? _kOverlayTextShadow : null,
+        shadows: widget.light ? _kOverlayTextShadow : null,
       ),
       color: KairoColors.darkCard,
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-      onSelected: onMenuSelected,
-      itemBuilder: (_) => [
-        const PopupMenuItem(
-          value: 'edit',
+      onSelected: (value) {
+        if (value == 'save') {
+          _toggleSaved();
+          return;
+        }
+        widget.onMenuSelected(value);
+      },
+      itemBuilder: (_) {
+        final saveItem = PopupMenuItem<String>(
+          value: 'save',
           child: Row(
             children: [
-              Icon(Icons.edit_outlined, size: 20, color: KairoColors.darkText),
-              SizedBox(width: 12),
-              Text('Editar texto', style: TextStyle(color: KairoColors.darkText)),
+              Icon(
+                _saved ? Icons.bookmark : Icons.bookmark_border,
+                size: 20,
+                color: KairoColors.darkText,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                _saved ? 'Guardado' : 'Guardar',
+                style: const TextStyle(color: KairoColors.darkText),
+              ),
             ],
           ),
-        ),
-        if (post.content.isNotEmpty)
+        );
+        if (!widget.isOwner) return [saveItem];
+        return [
           const PopupMenuItem(
-            value: 'delete_text',
+            value: 'edit',
             child: Row(
               children: [
-                Icon(Icons.text_fields_outlined, size: 20, color: KairoColors.errorText),
+                Icon(Icons.edit_outlined, size: 20, color: KairoColors.darkText),
                 SizedBox(width: 12),
-                Text('Eliminar texto', style: TextStyle(color: KairoColors.errorText)),
+                Text('Editar publicación', style: TextStyle(color: KairoColors.darkText)),
               ],
             ),
           ),
-        const PopupMenuItem(
-          value: 'delete_post',
-          child: Row(
-            children: [
-              Icon(Icons.delete_outline, size: 20, color: KairoColors.errorText),
-              SizedBox(width: 12),
-              Text('Eliminar publicación', style: TextStyle(color: KairoColors.errorText)),
-            ],
+          saveItem,
+          if (widget.post.content.isNotEmpty)
+            const PopupMenuItem(
+              value: 'delete_text',
+              child: Row(
+                children: [
+                  Icon(Icons.text_fields_outlined, size: 20, color: KairoColors.errorText),
+                  SizedBox(width: 12),
+                  Text('Eliminar texto', style: TextStyle(color: KairoColors.errorText)),
+                ],
+              ),
+            ),
+          const PopupMenuItem(
+            value: 'delete_post',
+            child: Row(
+              children: [
+                Icon(Icons.delete_outline, size: 20, color: KairoColors.errorText),
+                SizedBox(width: 12),
+                Text('Eliminar publicación', style: TextStyle(color: KairoColors.errorText)),
+              ],
+            ),
           ),
-        ),
-      ],
+        ];
+      },
     );
   }
 }

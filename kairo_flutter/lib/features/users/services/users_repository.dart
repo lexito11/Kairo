@@ -146,6 +146,9 @@ class UsersRepository {
   Future<void> follow(String userId) async {
     final uid = _userId;
     if (uid == null) throw Exception('Debes iniciar sesión');
+    if (await isBlockedEitherWay(userId)) {
+      throw Exception('No puedes agregar a esta persona');
+    }
     await _client.from('follows').insert({'follower_id': uid, 'following_id': userId});
   }
 
@@ -157,6 +160,73 @@ class UsersRepository {
         .delete()
         .eq('follower_id', uid)
         .eq('following_id', userId);
+  }
+
+  Future<void> removeFriendship(String userId) async {
+    final uid = _userId;
+    if (uid == null) return;
+    await unfollow(userId);
+    await _client.from('follows').delete().eq('follower_id', userId).eq('following_id', uid);
+  }
+
+  Future<void> blockUser(String userId) async {
+    final uid = _userId;
+    if (uid == null) throw Exception('Debes iniciar sesión');
+    if (uid == userId) return;
+    await _client.from('user_blocks').upsert({
+      'blocker_id': uid,
+      'blocked_id': userId,
+    });
+    await removeFriendship(userId);
+  }
+
+  Future<void> unblockUser(String userId) async {
+    final uid = _userId;
+    if (uid == null) return;
+    await _client.from('user_blocks').delete().eq('blocker_id', uid).eq('blocked_id', userId);
+  }
+
+  Future<bool> isBlockedEitherWay(String userId) async {
+    final uid = _userId;
+    if (uid == null) return false;
+    try {
+      final mine = await _client
+          .from('user_blocks')
+          .select('blocked_id')
+          .eq('blocker_id', uid)
+          .eq('blocked_id', userId)
+          .maybeSingle();
+      if (mine != null) return true;
+      final theirs = await _client
+          .from('user_blocks')
+          .select('blocked_id')
+          .eq('blocker_id', userId)
+          .eq('blocked_id', uid)
+          .maybeSingle();
+      return theirs != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<List<KairoUser>> listBlockedUsers() async {
+    final uid = _userId;
+    if (uid == null) return [];
+    final rows = await _client
+        .from('user_blocks')
+        .select('blocked_id')
+        .eq('blocker_id', uid)
+        .order('created_at', ascending: false);
+    final ids = (rows as List).map((r) => r['blocked_id'] as String).toList();
+    if (ids.isEmpty) return [];
+    final users = await _client
+        .from('users')
+        .select('id, email, name, username, image, bio')
+        .inFilter('id', ids);
+    final byId = {
+      for (final r in users as List) (r as Map)['id'] as String: KairoUser.fromJson(Map<String, dynamic>.from(r)),
+    };
+    return [for (final id in ids) if (byId[id] != null) byId[id]!];
   }
 
   Future<Set<String>> fetchFollowingIds() async {
