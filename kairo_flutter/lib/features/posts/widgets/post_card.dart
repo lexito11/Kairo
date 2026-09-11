@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart';
@@ -7,12 +9,12 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/models/post.dart';
 import '../../../core/models/kairo_user.dart';
-import '../../../core/services/prefs_service.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../core/theme/kairo_layout.dart';
 import '../../../core/utils/format_time_ago.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../core/utils/responsive.dart';
+import '../../../core/widgets/constrained_video_player_envelope.dart';
 import '../../../core/widgets/feed_playback_focus_manager.dart';
 import '../../../core/widgets/feed_video_visibility.dart';
 import '../../../core/widgets/feed_video_volume.dart';
@@ -23,6 +25,7 @@ import '../../auth/services/auth_service.dart';
 import '../../videos/widgets/video_post_overlay.dart';
 import '../providers/posts_provider.dart';
 import '../services/posts_repository.dart';
+import '../services/saved_posts_repository.dart';
 import 'amen_likers_sheet.dart';
 import 'comments_sheet.dart';
 import 'share_sheet.dart';
@@ -439,6 +442,10 @@ class _HeroMediaSurface extends StatelessWidget {
           imageUrl: item.url,
           fit: fit,
           alignment: Alignment.topCenter,
+          fadeInDuration: Duration.zero,
+          fadeOutDuration: Duration.zero,
+          memCacheWidth: (MediaQuery.sizeOf(context).width * MediaQuery.devicePixelRatioOf(context)).round(),
+          placeholder: (_, __) => const ColoredBox(color: Colors.black),
         ),
       ),
     );
@@ -523,15 +530,16 @@ class _FeedCroppedMediaState extends State<_FeedCroppedMedia> {
   /// Aspect ratio real del archivo (solo para pantalla de detalle).
   double _mediaAspectRatio = _kFeedDisplayAspectRatio;
   final GlobalKey<FeedVideoVisibilityState> _visibilityKey = GlobalKey();
+  int _videoGen = 0;
+  bool _wantController = false;
+  Timer? _detachTimer;
 
   String get _heroTag => _feedMediaHeroTag(widget.postId);
 
   @override
   void initState() {
     super.initState();
-    if (widget.item.isVideo) {
-      _initFeedVideo();
-    } else {
+    if (!widget.item.isVideo) {
       _resolveImageAspectRatio();
     }
   }
@@ -551,13 +559,36 @@ class _FeedCroppedMediaState extends State<_FeedCroppedMedia> {
     stream.addListener(listener);
   }
 
-  void _initFeedVideo() {
+  void _onVideoFraction(double fraction) {
+    final want = fraction > 0.02;
+    if (want == _wantController) return;
+    _wantController = want;
+    if (want) {
+      _detachTimer?.cancel();
+      _ensureVideo();
+    } else {
+      _detachTimer?.cancel();
+      _detachTimer = Timer(const Duration(milliseconds: 280), () {
+        if (!_wantController) _tearDownVideo();
+      });
+    }
+  }
+
+  void _ensureVideo() {
+    if (!widget.item.isVideo || _controller != null) return;
+    final gen = ++_videoGen;
     final controller = VideoPlayerController.networkUrl(Uri.parse(widget.item.url));
     _controller = controller;
     FeedVideoVolume.instance.register(controller);
     FeedPlaybackFocusManager.instance.register(controller);
+    if (mounted) setState(() {});
     controller.initialize().then((_) {
-      if (!mounted) return;
+      if (!mounted || gen != _videoGen) {
+        FeedVideoVolume.instance.unregister(controller);
+        FeedPlaybackFocusManager.instance.unregister(controller);
+        controller.dispose();
+        return;
+      }
       final size = controller.value.size;
       if (size.width > 0 && size.height > 0) {
         _mediaAspectRatio = size.width / size.height;
@@ -569,12 +600,30 @@ class _FeedCroppedMediaState extends State<_FeedCroppedMedia> {
         _visibilityKey.currentState?.refreshVisibility();
       });
     }).catchError((_) {
-      if (mounted) setState(() => _videoReady = false);
+      if (mounted && gen == _videoGen) setState(() => _videoReady = false);
     });
+  }
+
+  void _tearDownVideo() {
+    final controller = _controller;
+    if (controller == null) return;
+    if (FeedPlaybackFocusManager.instance.isHeld(controller)) return;
+    _videoGen++;
+    _videoReady = false;
+    _controller = null;
+    FeedVideoVolume.instance.unregister(controller);
+    FeedPlaybackFocusManager.instance.unregister(controller);
+    if (controller.value.isInitialized && controller.value.isPlaying) {
+      controller.pause();
+    }
+    controller.dispose();
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _detachTimer?.cancel();
+    _videoGen++;
     if (_controller != null) {
       FeedVideoVolume.instance.unregister(_controller!);
       FeedPlaybackFocusManager.instance.unregister(_controller!);
@@ -653,34 +702,57 @@ class _FeedCroppedMediaState extends State<_FeedCroppedMedia> {
   }
 
   Widget _buildFeedSurface() {
-    final item = widget.item;
-
-    if (item.isVideo) {
-      if (!_videoReady || _controller == null) {
-        return const ColoredBox(
-          color: Colors.black,
-          child: Center(child: CircularProgressIndicator(color: KairoColors.primary500)),
-        );
-      }
-      return FeedVideoVisibility(
-        key: _visibilityKey,
-        controller: _controller!,
-        child: _HeroMediaSurface(
-          item: item,
-          fit: BoxFit.cover,
-          controller: _controller,
-        ),
-      );
-    }
-
     return _HeroMediaSurface(
-      item: item,
+      item: widget.item,
       fit: BoxFit.cover,
       controller: _controller,
     );
   }
 
+  void _onEnvelopeEnterLandscape() {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (FeedPlaybackFocusManager.instance.isHeld(controller)) return;
+    if (!FeedPlaybackFocusManager.instance.isFocused(controller)) return;
+    _openFullscreen();
+  }
+
+  void _onEnvelopeExitLandscape() {
+    final controller = _controller;
+    if (controller == null) return;
+    if (!FeedPlaybackFocusManager.instance.isHeld(controller)) return;
+    if (!mounted) return;
+    final nav = Navigator.of(context);
+    if (nav.canPop()) nav.pop();
+  }
+
   Widget _buildMediaFrame() {
+    if (widget.item.isVideo) {
+      final controller = _controller;
+      final player = ConstrainedVideoPlayerEnvelope(
+        controller: controller,
+        videoAspectRatio: _mediaAspectRatio,
+        enableOrientationFullscreen: true,
+        onEnterLandscape: _onEnvelopeEnterLandscape,
+        onExitLandscape: _onEnvelopeExitLandscape,
+        placeholder: const ColoredBox(
+          color: Color(0xFF000000),
+          child: Center(child: CircularProgressIndicator(color: KairoColors.primary500)),
+        ),
+        child: controller != null && _videoReady && controller.value.isInitialized
+            ? IgnorePointer(child: RepaintBoundary(child: VideoPlayer(controller)))
+            : null,
+      );
+      return IgnorePointer(
+        child: FeedVideoVisibility(
+          key: _visibilityKey,
+          controller: controller,
+          onFractionChanged: _onVideoFraction,
+          child: player,
+        ),
+      );
+    }
+
     return AspectRatio(
       aspectRatio: _kFeedDisplayAspectRatio,
       child: ClipRect(
@@ -693,13 +765,15 @@ class _FeedCroppedMediaState extends State<_FeedCroppedMedia> {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _openFullscreen,
-      onDoubleTap: widget.onLike,
-      child: _buildFeedHero(
-        heroTag: _heroTag,
-        child: _buildMediaFrame(),
+    return RepaintBoundary(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _openFullscreen,
+        onDoubleTap: widget.onLike,
+        child: _buildFeedHero(
+          heroTag: _heroTag,
+          child: _buildMediaFrame(),
+        ),
       ),
     );
   }
@@ -775,41 +849,47 @@ class _FeedMediaStack extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.hardEdge,
-      children: [
-        _FeedCroppedMedia(
-          item: item,
-          postId: postId,
-          onLike: onLike,
-        ),
-        _FeedFloatingAuthorHeader(
-          post: post,
-          isOwner: isOwner,
-          onMenuSelected: onMenuSelected,
-          showFollowButton: showFollowButton,
-          isFollowingAuthor: isFollowingAuthor,
-          followLoading: followLoading,
-          onToggleFollowAuthor: onToggleFollowAuthor,
-        ),
-        if (isOwner)
-          Positioned(
-            right: _kFeedFloatMargin,
-            bottom: _kFeedFloatMargin,
-            child: _PostOwnerMenu(
+    return ClipRect(
+      child: AspectRatio(
+        aspectRatio: _kFeedDisplayAspectRatio,
+        child: Stack(
+          fit: StackFit.expand,
+          clipBehavior: Clip.hardEdge,
+          children: [
+            _FeedCroppedMedia(
+              item: item,
+              postId: postId,
+              onLike: onLike,
+            ),
+            _FeedFloatingAuthorHeader(
               post: post,
               isOwner: isOwner,
               onMenuSelected: onMenuSelected,
-              light: true,
+              showFollowButton: showFollowButton,
+              isFollowingAuthor: isFollowingAuthor,
+              followLoading: followLoading,
+              onToggleFollowAuthor: onToggleFollowAuthor,
             ),
-          ),
-        if (item.isVideo)
-          const Positioned(
-            top: 8,
-            right: 8,
-            child: _FeedMuteButton(),
-          ),
-      ],
+            if (isOwner)
+              Positioned(
+                right: _kFeedFloatMargin,
+                bottom: _kFeedFloatMargin,
+                child: _PostOwnerMenu(
+                  post: post,
+                  isOwner: isOwner,
+                  onMenuSelected: onMenuSelected,
+                  light: true,
+                ),
+              ),
+            if (item.isVideo)
+              const Positioned(
+                top: 8,
+                right: 8,
+                child: _FeedMuteButton(),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1453,7 +1533,7 @@ class _PostOwnerMenu extends StatefulWidget {
 }
 
 class _PostOwnerMenuState extends State<_PostOwnerMenu> {
-  final _prefs = PrefsService();
+  final _savedRepo = SavedPostsRepository();
   bool _saved = false;
 
   static const _kOverlayTextShadow = [
@@ -1474,17 +1554,26 @@ class _PostOwnerMenuState extends State<_PostOwnerMenu> {
   }
 
   Future<void> _loadSaved() async {
-    final saved = await _prefs.isPostSaved(widget.post.id);
-    if (mounted) setState(() => _saved = saved);
+    try {
+      final saved = await _savedRepo.isSaved(widget.post.id);
+      if (mounted) setState(() => _saved = saved);
+    } catch (_) {}
   }
 
   Future<void> _toggleSaved() async {
-    final saved = await _prefs.toggleSavedPost(widget.post.id);
-    if (!mounted) return;
-    setState(() => _saved = saved);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(saved ? 'Publicación guardada' : 'Quitada de guardados')),
-    );
+    try {
+      final saved = await _savedRepo.toggle(widget.post.id);
+      if (!mounted) return;
+      setState(() => _saved = saved);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(saved ? 'Publicación guardada' : 'Quitada de guardados')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo guardar la publicación')),
+      );
+    }
   }
 
   @override

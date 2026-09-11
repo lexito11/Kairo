@@ -9,19 +9,24 @@ import 'feed_video_volume.dart';
 class FeedVideoVisibility extends StatefulWidget {
   const FeedVideoVisibility({
     super.key,
-    required this.controller,
+    this.controller,
     required this.child,
     this.enabled = true,
     this.bottomInset = 80,
     this.minVisibleFraction = 0.5,
+    this.manageFocus = true,
+    this.onFractionChanged,
   });
 
-  final VideoPlayerController controller;
+  final VideoPlayerController? controller;
   final Widget child;
   final bool enabled;
   final double bottomInset;
   /// Fracción mínima del área del video que debe verse (0.5 = mitad o más).
   final double minVisibleFraction;
+  /// Si es false, solo reporta visibilidad (historias u otros previews).
+  final bool manageFocus;
+  final ValueChanged<double>? onFractionChanged;
 
   @override
   State<FeedVideoVisibility> createState() => FeedVideoVisibilityState();
@@ -72,6 +77,9 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility>
   @override
   void didUpdateWidget(covariant FeedVideoVisibility oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.controller != oldWidget.controller) {
+      _scheduleEvaluate();
+    }
     if (widget.enabled != oldWidget.enabled) {
       _enabled = widget.enabled;
       if (_enabled) {
@@ -92,8 +100,10 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility>
 
   @override
   void didPushNext() {
+    final controller = widget.controller;
     // Otra ruta encima: pausar solo si no estamos en detalle de este video.
-    if (!_enabled || FeedPlaybackFocusManager.instance.isHeld(widget.controller)) {
+    if (!_enabled ||
+        (controller != null && FeedPlaybackFocusManager.instance.isHeld(controller))) {
       return;
     }
     _applyPlayback();
@@ -153,14 +163,16 @@ class FeedVideoVisibilityState extends State<FeedVideoVisibility>
 
   void _evaluate() {
     if (!mounted) return;
-    _meetsVisibilityThreshold = _visibleFraction() >= widget.minVisibleFraction;
+    final fraction = _visibleFraction();
+    _meetsVisibilityThreshold = fraction >= widget.minVisibleFraction;
+    widget.onFractionChanged?.call(fraction);
     _applyPlayback();
   }
 
   void _applyPlayback() {
-    if (!mounted) return;
+    if (!mounted || !widget.manageFocus) return;
     final controller = widget.controller;
-    if (!controller.value.isInitialized) return;
+    if (controller == null || !controller.value.isInitialized) return;
 
     // Video abierto desde el feed: no pausar ni recalcular visibilidad.
     if (FeedPlaybackFocusManager.instance.isHeld(controller)) {

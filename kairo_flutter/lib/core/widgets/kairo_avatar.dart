@@ -1,5 +1,4 @@
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../theme/kairo_colors.dart';
 
@@ -31,7 +30,7 @@ class KairoAvatar extends StatelessWidget {
         color: hasPhoto ? KairoColors.darkHover : null,
       ),
       clipBehavior: Clip.antiAlias,
-      child: hasPhoto ? _photo(url, initial) : _initial(initial),
+      child: hasPhoto ? _photo(context, url, initial) : _initial(initial),
     );
     if (onTap != null) {
       return GestureDetector(onTap: onTap, child: child);
@@ -52,23 +51,17 @@ class KairoAvatar extends StatelessWidget {
     );
   }
 
-  Widget _photo(String url, String initial) {
-    if (kIsWeb) {
-      return Image.network(
-        url,
-        fit: BoxFit.cover,
-        width: size,
-        height: size,
-        gaplessPlayback: true,
-        errorBuilder: (_, __, ___) => _initial(initial),
-      );
-    }
+  Widget _photo(BuildContext context, String url, String initial) {
+    final px = (size * MediaQuery.devicePixelRatioOf(context)).round().clamp(32, 256);
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
       width: size,
       height: size,
+      memCacheWidth: px,
+      memCacheHeight: px,
       fadeInDuration: Duration.zero,
+      fadeOutDuration: Duration.zero,
       placeholder: (_, __) => const ColoredBox(color: KairoColors.darkHover),
       errorWidget: (_, __, ___) => _initial(initial),
     );

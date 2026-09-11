@@ -9,6 +9,7 @@ import '../../../core/models/story.dart';
 import '../../../core/navigation/app_route_observer.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../core/utils/responsive.dart';
+import '../../../core/widgets/feed_video_visibility.dart';
 import '../../../core/widgets/kairo_avatar.dart';
 import '../../../features/auth/services/auth_service.dart';
 import '../../users/services/users_repository.dart';
@@ -118,44 +119,60 @@ class _StoriesStripState extends State<StoriesStrip> with RouteAware {
 
   @override
   Widget build(BuildContext context) {
+    final Widget strip;
     if (_loading) {
-      return SizedBox(
+      strip = SizedBox(
         height: _kStripHeight,
         child: const Center(child: CircularProgressIndicator(color: KairoColors.primary500, strokeWidth: 2)),
       );
+    } else {
+      strip = SizedBox(
+        height: _kStripHeight,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          addAutomaticKeepAlives: false,
+          addRepaintBoundaries: true,
+          itemCount: _groups.length + (AuthService().isSignedIn ? 1 : 0),
+          itemBuilder: (context, index) {
+            final showAdd = AuthService().isSignedIn;
+            if (showAdd && index == 0) {
+              return RepaintBoundary(
+                child: _StoryCard(
+                  label: 'Tu historia',
+                  isAdd: true,
+                  profileImageUrl: _profileImage,
+                  profileName: _profileName,
+                  onTap: _addStory,
+                ),
+              );
+            }
+            final group = _groups[showAdd ? index - 1 : index];
+            final isMine = group.author.id == AuthService().currentUser?.id;
+            return RepaintBoundary(
+              child: _StoryCard(
+                key: ValueKey(group.author.id),
+                label: isMine ? 'Tu historia' : group.author.displayName,
+                profileImageUrl: group.author.image,
+                stories: group.stories,
+                onTap: () => _openGroup(group, 0),
+              ),
+            );
+          },
+        ),
+      );
     }
 
-    return SizedBox(
-      height: _kStripHeight,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        children: [
-          if (AuthService().isSignedIn)
-            _StoryCard(
-              label: 'Tu historia',
-              isAdd: true,
-              profileImageUrl: _profileImage,
-              profileName: _profileName,
-              onTap: _addStory,
-            ),
-          ..._groups.map((g) {
-            final isMine = g.author.id == AuthService().currentUser?.id;
-            return _StoryCard(
-              label: isMine ? 'Tu historia' : g.author.displayName,
-              profileImageUrl: g.author.image,
-              stories: g.stories,
-              onTap: () => _openGroup(g, 0),
-            );
-          }),
-        ],
-      ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: strip,
     );
   }
 }
 
 class _StoryCard extends StatelessWidget {
   const _StoryCard({
+    super.key,
     required this.label,
     this.isAdd = false,
     this.profileImageUrl,
@@ -253,12 +270,10 @@ class _AddStoryBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = profileImageUrl;
     if (url != null && url.isNotEmpty) {
-      final photo = CachedNetworkImage(
-        imageUrl: url,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-        errorWidget: (_, __, ___) => _ProfileFallback(name: profileName),
+      final photo = _cachedStoryImage(
+        context,
+        url,
+        error: _ProfileFallback(name: profileName),
       );
       return Stack(
         fit: StackFit.expand,
@@ -343,7 +358,7 @@ class _StoryCollage extends StatelessWidget {
   Widget build(BuildContext context) {
     if (stories.isEmpty) {
       if (fallbackImageUrl != null) {
-        return CachedNetworkImage(imageUrl: fallbackImageUrl!, fit: BoxFit.cover);
+        return _cachedStoryImage(context, fallbackImageUrl!);
       }
       return const ColoredBox(color: KairoColors.darkHover);
     }
@@ -414,13 +429,7 @@ class _StoryThumb extends StatelessWidget {
     if (story.isVideo) {
       return _StoryCardVideo(url: story.mediaUrl);
     }
-    return CachedNetworkImage(
-      imageUrl: story.mediaUrl,
-      fit: BoxFit.cover,
-      width: double.infinity,
-      height: double.infinity,
-      errorWidget: (_, __, ___) => const ColoredBox(color: KairoColors.darkHover),
-    );
+    return _cachedStoryImage(context, story.mediaUrl);
   }
 }
 
@@ -435,51 +444,87 @@ class _StoryCardVideo extends StatefulWidget {
 }
 
 class _StoryCardVideoState extends State<_StoryCardVideo> {
-  late final VideoPlayerController _controller;
+  VideoPlayerController? _controller;
   bool _ready = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
-      ..initialize().then((_) {
-        if (!mounted) return;
-        _controller
-          ..setVolume(0)
-          ..setLooping(true)
-          ..play();
-        setState(() => _ready = true);
-      });
+    final controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    _controller = controller;
+    controller.initialize().then((_) {
+      if (!mounted) return;
+      controller
+        ..setVolume(0)
+        ..setLooping(true);
+      setState(() => _ready = true);
+    });
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
+  }
+
+  void _onFraction(double fraction) {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (fraction >= 0.25) {
+      if (!controller.value.isPlaying) controller.play();
+    } else if (controller.value.isPlaying) {
+      controller.pause();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_ready) {
-      return const ColoredBox(
-        color: KairoColors.darkHover,
-        child: Center(
-          child: SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2, color: KairoColors.primary500),
-          ),
-        ),
-      );
-    }
-    return FittedBox(
-      fit: BoxFit.cover,
-      clipBehavior: Clip.hardEdge,
-      child: SizedBox(
-        width: _controller.value.size.width,
-        height: _controller.value.size.height,
-        child: VideoPlayer(_controller),
-      ),
+    final player = !_ready || _controller == null
+        ? const ColoredBox(
+            color: KairoColors.darkHover,
+            child: Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: KairoColors.primary500),
+              ),
+            ),
+          )
+        : RepaintBoundary(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: _controller!.value.size.width,
+                height: _controller!.value.size.height,
+                child: VideoPlayer(_controller!),
+              ),
+            ),
+          );
+
+    return FeedVideoVisibility(
+      controller: _controller,
+      manageFocus: false,
+      minVisibleFraction: 0.25,
+      bottomInset: 0,
+      onFractionChanged: _onFraction,
+      child: player,
     );
   }
+}
+
+Widget _cachedStoryImage(BuildContext context, String url, {Widget? error}) {
+  final dpr = MediaQuery.devicePixelRatioOf(context);
+  return CachedNetworkImage(
+    imageUrl: url,
+    fit: BoxFit.cover,
+    width: double.infinity,
+    height: double.infinity,
+    fadeInDuration: Duration.zero,
+    fadeOutDuration: Duration.zero,
+    memCacheWidth: (_kStoryWidth * dpr).round(),
+    memCacheHeight: (_kStoryHeight * dpr).round(),
+    placeholder: (_, __) => const ColoredBox(color: KairoColors.darkHover),
+    errorWidget: (_, __, ___) => error ?? const ColoredBox(color: KairoColors.darkHover),
+  );
 }
