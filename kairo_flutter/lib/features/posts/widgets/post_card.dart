@@ -26,6 +26,8 @@ import '../../videos/widgets/video_post_overlay.dart';
 import '../providers/posts_provider.dart';
 import '../services/posts_repository.dart';
 import '../services/saved_posts_repository.dart';
+import '../../moderation/services/reports_repository.dart';
+import '../../moderation/widgets/report_content_sheet.dart';
 import 'amen_likers_sheet.dart';
 import 'comments_sheet.dart';
 import 'share_sheet.dart';
@@ -180,6 +182,12 @@ class _PostCardState extends State<PostCard> {
         _confirmDeleteText();
       case 'delete_post':
         _confirmDeletePost();
+      case 'report':
+        showReportContentSheet(
+          context,
+          targetType: ReportTargetType.post,
+          targetId: widget.post.id,
+        );
     }
   }
 
@@ -1615,7 +1623,21 @@ class _PostOwnerMenuState extends State<_PostOwnerMenu> {
             ],
           ),
         );
-        if (!widget.isOwner) return [saveItem];
+        if (!widget.isOwner) {
+          return [
+            saveItem,
+            const PopupMenuItem(
+              value: 'report',
+              child: Row(
+                children: [
+                  Icon(Icons.flag_outlined, size: 20, color: KairoColors.darkText),
+                  SizedBox(width: 12),
+                  Text('Reportar', style: TextStyle(color: KairoColors.darkText)),
+                ],
+              ),
+            ),
+          ];
+        }
         return [
           const PopupMenuItem(
             value: 'edit',

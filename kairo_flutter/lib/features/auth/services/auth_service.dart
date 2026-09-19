@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/moderation/kairo_content_policy.dart';
 import '../../../core/services/prefs_service.dart';
 import '../../../core/utils/username.dart';
 
@@ -29,10 +30,33 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    return _client.auth.signInWithPassword(
+    final response = await _client.auth.signInWithPassword(
       email: email.trim(),
       password: password,
     );
+    await refreshAccountStatus();
+    return response;
+  }
+
+  bool accountBlocked = false;
+
+  Future<bool> refreshAccountStatus() async {
+    final uid = currentUser?.id;
+    if (uid == null) {
+      accountBlocked = false;
+      return false;
+    }
+    try {
+      final row = await _client
+          .from('users')
+          .select('account_status')
+          .eq('id', uid)
+          .maybeSingle();
+      accountBlocked = row?['account_status'] == 'blocked';
+    } catch (_) {
+      accountBlocked = false;
+    }
+    return accountBlocked;
   }
 
   /// Registro Email/Password + metadata (name, username) para el trigger SQL
@@ -45,7 +69,9 @@ class AuthService {
     final trimmedUsername = username == null || username.trim().isEmpty
         ? null
         : UsernamePolicy.sanitize(username);
+    KairoContentPolicy.assertText(name);
     if (trimmedUsername != null) {
+      KairoContentPolicy.assertText(trimmedUsername);
       final invalid = UsernamePolicy.validate(trimmedUsername);
       if (invalid != null) throw AuthException(invalid);
       if (await _isUsernameTaken(trimmedUsername)) {
@@ -64,7 +90,29 @@ class AuthService {
     );
   }
 
-  Future<void> signOut() => _client.auth.signOut();
+  Future<void> signOut() async {
+    clearPasswordRecovery();
+    await _client.auth.signOut();
+  }
+
+  Future<void> sendPasswordRecoveryEmail(String email) async {
+    final trimmed = email.trim();
+    if (trimmed.isEmpty || !trimmed.contains('@')) {
+      throw AuthException('Email inválido');
+    }
+    await _client.auth.resetPasswordForEmail(
+      trimmed,
+      redirectTo: _recoveryRedirect(),
+    );
+  }
+
+  Future<void> resendSignupConfirmation(String email) async {
+    final trimmed = email.trim();
+    if (trimmed.isEmpty || !trimmed.contains('@')) {
+      throw AuthException('Email inválido');
+    }
+    await _client.auth.resend(type: OtpType.signup, email: trimmed);
+  }
 
   Future<void> updatePassword(String newPassword) async {
     final trimmed = newPassword.trim();
@@ -128,15 +176,19 @@ class AuthService {
   Future<void> sendPasswordRecoveryToRegisteredEmail() async {
     final email = registeredEmail;
     if (email == null) throw AuthException('No hay un correo registrado en KAIRO');
-    await _client.auth.resetPasswordForEmail(
-      email,
-      redirectTo: _recoveryRedirect(),
-    );
+    await sendPasswordRecoveryEmail(email);
   }
 
+  static const nativeAuthCallback = 'io.kairo.app://login-callback/';
+
   static String _recoveryRedirect() {
-    if (kIsWeb) return '${Uri.base.origin}/#/auth/reset-password';
-    return '${Uri.base.origin}/auth/reset-password';
+    if (kIsWeb) {
+      final origin = Uri.base.origin;
+      if (origin.startsWith('http')) {
+        return '$origin/#/auth/reset-password';
+      }
+    }
+    return nativeAuthCallback;
   }
 
   Future<bool> _isUsernameTaken(String username) async {
@@ -155,6 +207,8 @@ class AuthService {
 
   /// Mensaje amigable en español (como la web)
   static String mapAuthError(Object error) {
+    if (error is KairoAccountBlockedException) return error.toString();
+    if (error is KairoContentBlockedException) return error.toString();
     final raw = error.toString().toLowerCase();
     if (raw.contains('failed to fetch') ||
         raw.contains('clientexception') ||
@@ -167,6 +221,9 @@ class AuthService {
     }
     if (error is AuthException) {
       final msg = error.message.toLowerCase();
+      if (msg.contains('account_blocked') || msg.contains('límite de infracciones')) {
+        return KairoAccountBlockedException.userMessage;
+      }
       if (msg.contains('invalid login') ||
           msg.contains('invalid credentials') ||
           msg.contains('invalid email or password')) {
@@ -179,8 +236,15 @@ class AuthService {
       }
       if (msg.contains('already registered') ||
           msg.contains('already exists') ||
-          msg.contains('already been registered')) {
+          msg.contains('already been registered') ||
+          msg.contains('user already registered')) {
         return 'Este email ya está registrado';
+      }
+      if (msg.contains('rate limit') || msg.contains('over_email_send_rate_limit')) {
+        return 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.';
+      }
+      if (msg.contains('expired') || msg.contains('otp_expired')) {
+        return 'El enlace expiró. Solicita uno nuevo para cambiar la contraseña.';
       }
       if (msg.contains('password') &&
           (msg.contains('least') ||

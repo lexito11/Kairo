@@ -237,7 +237,7 @@ class MomentsRepository {
     return _storage.uploadBytes(
       bytes: bytes,
       fileName: fileName,
-      mimeType: 'image/jpeg',
+      mimeType: fileName.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg',
       subfolder: 'moment-covers',
     );
   }

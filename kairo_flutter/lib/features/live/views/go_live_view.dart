@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/kairo_colors.dart';
+import '../../../core/widgets/kairo_avatar.dart';
 import '../../../core/widgets/main_scaffold.dart';
 import '../../users/services/users_repository.dart';
-import '../live_catalog.dart';
-
-const _teal = Color(0xFF2DD4BF);
+import '../services/live_feed_controller.dart';
+import '../services/live_repository.dart';
+import '../widgets/live_widgets.dart';
 
 class GoLiveView extends StatefulWidget {
   const GoLiveView({super.key});
@@ -17,9 +18,9 @@ class GoLiveView extends StatefulWidget {
 
 class _GoLiveViewState extends State<GoLiveView> {
   final _title = TextEditingController();
-  bool _cameraOn = false;
-  bool _micOn = true;
+  final _repo = LiveRepository();
   bool _starting = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -27,13 +28,12 @@ class _GoLiveViewState extends State<GoLiveView> {
     super.dispose();
   }
 
-  Future<void> _retryCamera() async {
-    setState(() => _cameraOn = true);
-  }
-
   Future<void> _start() async {
     if (_starting) return;
-    setState(() => _starting = true);
+    setState(() {
+      _starting = true;
+      _error = null;
+    });
     try {
       final me = await UsersRepository().getCurrentUser();
       if (!mounted) return;
@@ -41,12 +41,16 @@ class _GoLiveViewState extends State<GoLiveView> {
         context.push('/auth/signin');
         return;
       }
-      final stream = LiveCatalog.instance.startLive(
-        host: me,
+      final stream = await _repo.startLive(
         title: _title.text,
+        thumbnailUrl: me.image,
       );
+      await LiveFeedController.instance.refresh();
       if (!mounted) return;
       context.pushReplacement('/live/${stream.id}');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = _repo.mapError(e));
     } finally {
       if (mounted) setState(() => _starting = false);
     }
@@ -74,7 +78,7 @@ class _GoLiveViewState extends State<GoLiveView> {
                       style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                     Text(
-                      'Configura antes de ir en vivo',
+                      'Abre una sala en vivo para la comunidad',
                       style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
                     ),
                   ],
@@ -83,91 +87,38 @@ class _GoLiveViewState extends State<GoLiveView> {
             ],
           ),
           const SizedBox(height: 12),
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ColoredBox(
+          FutureBuilder(
+            future: UsersRepository().getCurrentUser(),
+            builder: (context, snap) {
+              final me = snap.data;
+              return AspectRatio(
+                aspectRatio: 16 / 9,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: ColoredBox(
                     color: const Color(0xFF1A1A1A),
-                    child: _cameraOn
-                        ? const Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.videocam, color: Colors.white54, size: 40),
-                                SizedBox(height: 8),
-                                Text('Cámara lista', style: TextStyle(color: Colors.white70)),
-                              ],
-                            ),
-                          )
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.videocam_off_outlined, color: Colors.white38, size: 42),
-                              const SizedBox(height: 10),
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 24),
-                                child: Text(
-                                  'Permite el acceso a la cámara para previsualizar.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              OutlinedButton(
-                                onPressed: _retryCamera,
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: _teal,
-                                  side: const BorderSide(color: _teal),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                ),
-                                child: const Text('Reintentar'),
-                              ),
-                            ],
-                          ),
-                  ),
-                  Positioned(
-                    top: 10,
-                    left: 10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Text(
-                        'Horizontal 16:9',
-                        style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    right: 10,
-                    bottom: 10,
-                    child: Row(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _RoundIcon(
-                          icon: Icons.cameraswitch_outlined,
-                          onTap: () {
-                            if (!_cameraOn) {
-                              setState(() => _cameraOn = true);
-                            }
-                          },
+                        KairoAvatar(imageUrl: me?.image, name: me?.displayName ?? 'Tú', size: 64),
+                        const SizedBox(height: 10),
+                        const LiveBadge(showDot: true),
+                        const SizedBox(height: 8),
+                        Text(
+                          me?.displayName ?? 'Tu sala',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
                         ),
-                        const SizedBox(width: 8),
-                        _RoundIcon(
-                          icon: _micOn ? Icons.mic : Icons.mic_off,
-                          onTap: () => setState(() => _micOn = !_micOn),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Chat y presencia en tiempo real',
+                          style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
                         ),
                       ],
                     ),
                   ),
-                ],
-              ),
-            ),
+                ),
+              );
+            },
           ),
           const SizedBox(height: 20),
           const Text(
@@ -195,9 +146,9 @@ class _GoLiveViewState extends State<GoLiveView> {
                 borderRadius: BorderRadius.circular(12),
                 borderSide: const BorderSide(color: KairoColors.darkBorder),
               ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: _teal),
+              focusedBorder: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(12)),
+                borderSide: BorderSide(color: Color(0xFF2DD4BF)),
               ),
             ),
           ),
@@ -208,21 +159,10 @@ class _GoLiveViewState extends State<GoLiveView> {
               style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
             ),
           ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: KairoColors.darkCard,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Row(
-              children: [
-                _StatusDot(active: _micOn, label: _micOn ? 'Micrófono activo' : 'Micrófono off'),
-                const SizedBox(width: 16),
-                _StatusDot(active: _cameraOn, label: _cameraOn ? 'Cámara activa' : 'Cámara off'),
-              ],
-            ),
-          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, style: const TextStyle(color: KairoColors.errorText, height: 1.35)),
+          ],
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
@@ -230,62 +170,19 @@ class _GoLiveViewState extends State<GoLiveView> {
             child: ElevatedButton(
               onPressed: _starting ? null : _start,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFEF4444),
+                backgroundColor: liveRed,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 elevation: 0,
               ),
-              child: Text(_starting ? 'Conectando...' : 'Ir en vivo', style: const TextStyle(fontWeight: FontWeight.w700)),
+              child: Text(
+                _starting ? 'Abriendo sala...' : 'Ir en vivo',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _RoundIcon extends StatelessWidget {
-  const _RoundIcon({required this.icon, required this.onTap});
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.55),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: Colors.white, size: 18),
-      ),
-    );
-  }
-}
-
-class _StatusDot extends StatelessWidget {
-  const _StatusDot({required this.active, required this.label});
-  final bool active;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: active ? const Color(0xFF22C55E) : KairoColors.darkTextSecondary,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
-      ],
     );
   }
 }

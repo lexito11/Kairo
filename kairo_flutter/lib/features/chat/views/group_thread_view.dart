@@ -10,6 +10,9 @@ import '../../../core/models/chat_group.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../features/auth/services/auth_service.dart';
 import '../../messages/services/groups_repository.dart';
+import '../../moderation/services/reports_repository.dart';
+import '../../moderation/widgets/report_content_sheet.dart';
+import '../widgets/group_avatar.dart';
 import '../widgets/group_invite_sheet.dart';
 import '../widgets/group_message_composer.dart';
 import '../widgets/group_settings_sheet.dart';
@@ -133,7 +136,34 @@ class _GroupThreadViewState extends State<GroupThreadView> {
       context,
       group: group,
       onUpdated: _load,
+      onLeft: () {
+        if (mounted) context.pop();
+      },
     );
+  }
+
+  Future<void> _leaveGroup() async {
+    final group = _group;
+    if (group == null || !group.isMember) return;
+    final needsTransfer = group.isAdmin && group.adminCount <= 1 && group.memberCount > 1;
+    final confirmed = await confirmLeaveGroup(
+      context,
+      isLastMember: group.memberCount <= 1,
+      needsAdminTransfer: needsTransfer,
+    );
+    if (!confirmed) return;
+    try {
+      await _repo.leaveGroup(group.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Saliste del grupo')),
+      );
+      context.pop();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
   }
 
   String _timeLabel(DateTime d) {
@@ -154,7 +184,7 @@ class _GroupThreadViewState extends State<GroupThreadView> {
     final myId = AuthService().currentUser?.id;
     final group = _group;
     final canInvite = group != null && group.isAdmin && !group.isPublic;
-    final canSend = group?.canSendMessages ?? true;
+    final canSend = group != null && group.isMember && group.canSendMessages;
 
     return Scaffold(
       backgroundColor: KairoColors.darkBg,
@@ -164,14 +194,23 @@ class _GroupThreadViewState extends State<GroupThreadView> {
           children: [
             _GroupHeader(
               name: group?.name ?? widget.groupName,
+              description: group?.description,
+              imageUrl: group?.imageUrl,
               isPublic: group?.isPublic ?? false,
               adminsOnlyChat: group?.adminsOnlyChat ?? false,
               memberCount: group?.memberCount,
               canInvite: canInvite,
               canManage: group?.isAdmin ?? false,
+              canLeave: group?.isMember == true && group?.isAdmin != true,
               onBack: () => context.pop(),
               onInvite: _openInviteSheet,
               onSettings: _openSettings,
+              onLeave: _leaveGroup,
+              onReport: () => showReportContentSheet(
+                context,
+                targetType: ReportTargetType.group,
+                targetId: widget.groupId,
+              ),
             ),
             Expanded(
               child: ScrollConfiguration(
@@ -183,11 +222,13 @@ class _GroupThreadViewState extends State<GroupThreadView> {
                             child: Padding(
                               padding: const EdgeInsets.all(24),
                               child: Text(
-                                group?.adminsOnlyChat == true && group?.isAdmin != true
-                                    ? 'Solo los administradores pueden escribir en este grupo.'
-                                    : group?.isPublic == true
-                                        ? 'Grupo público. Escribe el primer mensaje.'
-                                        : 'Grupo privado. Invita amigos para que se unan.',
+                                group != null && !group.isMember
+                                    ? 'No eres miembro de este grupo.'
+                                    : group?.adminsOnlyChat == true && group?.isAdmin != true
+                                        ? 'Solo los administradores pueden escribir en este grupo.'
+                                        : group?.isPublic == true
+                                            ? 'Grupo público. Escribe el primer mensaje.'
+                                            : 'Grupo privado. Invita amigos para que se unan.',
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(color: KairoColors.darkTextSecondary),
                               ),
@@ -328,23 +369,33 @@ class _GroupHeader extends StatelessWidget {
     required this.name,
     required this.onBack,
     required this.isPublic,
+    this.description,
+    this.imageUrl,
     this.adminsOnlyChat = false,
     this.memberCount,
     this.canInvite = false,
     this.canManage = false,
+    this.canLeave = false,
     this.onInvite,
     this.onSettings,
+    this.onLeave,
+    this.onReport,
   });
 
   final String name;
+  final String? description;
+  final String? imageUrl;
   final VoidCallback onBack;
   final bool isPublic;
   final bool adminsOnlyChat;
   final int? memberCount;
   final bool canInvite;
   final bool canManage;
+  final bool canLeave;
   final VoidCallback? onInvite;
   final VoidCallback? onSettings;
+  final VoidCallback? onLeave;
+  final VoidCallback? onReport;
 
   @override
   Widget build(BuildContext context) {
@@ -361,15 +412,7 @@ class _GroupHeader extends StatelessWidget {
             onPressed: onBack,
             icon: const Icon(Icons.arrow_back, color: KairoColors.darkText),
           ),
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              gradient: KairoColors.buttonGradient,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.groups, color: Colors.white, size: 22),
-          ),
+          GroupAvatar(imageUrl: imageUrl, size: 40, radius: 12),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -385,6 +428,13 @@ class _GroupHeader extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                if (description != null && description!.trim().isNotEmpty)
+                  Text(
+                    description!.trim(),
+                    style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 Text(
                   '${memberCount ?? 1} miembros · ${isPublic ? 'Público' : 'Privado'} · $modeLabel',
                   style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
@@ -403,6 +453,17 @@ class _GroupHeader extends StatelessWidget {
               onPressed: onInvite,
               tooltip: 'Invitar',
               icon: const Icon(Icons.person_add_alt_1, color: KairoColors.primary400),
+            ),
+          IconButton(
+            onPressed: onReport,
+            tooltip: 'Reportar grupo',
+            icon: const Icon(Icons.flag_outlined, color: KairoColors.darkTextSecondary),
+          ),
+          if (canLeave)
+            IconButton(
+              onPressed: onLeave,
+              tooltip: 'Salir del grupo',
+              icon: const Icon(Icons.logout, color: Color(0xFFF87171)),
             ),
         ],
       ),

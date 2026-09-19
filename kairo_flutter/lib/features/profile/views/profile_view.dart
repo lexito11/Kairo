@@ -6,7 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/kairo_user.dart';
 import '../../../core/models/post.dart';
-import '../../../core/services/prefs_service.dart';
+import '../../../core/models/story.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../core/widgets/kairo_avatar.dart';
@@ -15,8 +15,12 @@ import '../../../features/auth/services/auth_service.dart';
 import '../../../core/navigation/app_route_observer.dart';
 import '../../../core/providers/social_summary_provider.dart';
 import '../../posts/services/posts_repository.dart';
+import '../../posts/services/saved_posts_repository.dart';
 import '../../posts/widgets/share_sheet.dart';
 import '../../stories/services/stories_repository.dart';
+import '../../moderation/services/reports_repository.dart';
+import '../../moderation/widgets/report_content_sheet.dart';
+import '../../stories/widgets/story_viewer.dart';
 import '../../users/services/users_repository.dart';
 import '../widgets/feelings_selector.dart';
 import '../widgets/moments_strip.dart';
@@ -38,7 +42,7 @@ class ProfileView extends StatefulWidget {
 class _ProfileViewState extends State<ProfileView> with RouteAware {
   final _usersRepo = UsersRepository();
   final _postsRepo = PostsRepository();
-  final _prefs = PrefsService();
+  final _savedRepo = SavedPostsRepository();
 
   UserProfileData? _profile;
   List<Post> _posts = [];
@@ -145,20 +149,60 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
       }
     } catch (_) {}
     try {
-      final ids = await _prefs.getSavedPostIds();
+      final ids = await _savedRepo.fetchIds();
       final saved = ids.isEmpty ? <Post>[] : await _postsRepo.fetchPostsByIds(ids);
       if (mounted) setState(() => _savedPosts = saved);
     } catch (_) {}
   }
 
   Future<void> _loadSaved() async {
-    final ids = await _prefs.getSavedPostIds();
+    final ids = await _savedRepo.fetchIds();
     if (ids.isEmpty) {
       setState(() => _savedPosts = []);
       return;
     }
     final posts = await _postsRepo.fetchPostsByIds(ids);
     setState(() => _savedPosts = posts);
+  }
+
+  Future<void> _openActiveStories() async {
+    final uid = _viewedUserId;
+    if (uid == null) return;
+    final stories = await StoriesRepository().fetchActiveStoriesForUser(uid);
+    if (!mounted) return;
+    if (stories.isEmpty) {
+      setState(() => _hasActiveStory = false);
+      if (_isOwner) await _addStoryFromAvatar();
+      return;
+    }
+    final author = _profile?.user ?? stories.first.author;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StoryViewer(
+          groups: [StoryGroup(author: author, stories: stories)],
+          initialGroupIndex: 0,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    try {
+      final hasStory = await StoriesRepository().hasActiveStories(uid);
+      if (mounted) setState(() => _hasActiveStory = hasStory);
+    } catch (_) {}
+  }
+
+  void _onAvatarTap() {
+    if (_publishingStory) return;
+    if (_hasActiveStory) {
+      _openActiveStories();
+      return;
+    }
+    if (_isOwner) _addStoryFromAvatar();
+  }
+
+  void _onAvatarDoubleTap() {
+    if (!_isOwner || !_hasActiveStory || _publishingStory) return;
+    _addStoryFromAvatar();
   }
 
   Future<void> _addStoryFromAvatar() async {
@@ -321,7 +365,12 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
                     clipBehavior: Clip.none,
                     children: [
                       GestureDetector(
-                        onTap: _isOwner && !_publishingStory ? _addStoryFromAvatar : null,
+                        onTap: !_publishingStory && (_isOwner || _hasActiveStory)
+                            ? _onAvatarTap
+                            : null,
+                        onDoubleTap: _isOwner && _hasActiveStory && !_publishingStory
+                            ? _onAvatarDoubleTap
+                            : null,
                         child: SizedBox(
                           width: avatarSize,
                           height: avatarSize,
@@ -334,7 +383,9 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: _hasActiveStory ? KairoColors.successText : Colors.white,
+                                    color: _hasActiveStory
+                                        ? KairoColors.primary500
+                                        : Colors.white,
                                     width: 3,
                                   ),
                                 ),
@@ -556,13 +607,25 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
                     subtitle: '@$handle',
                     onTap: () => closeThen(() => _copyText('@$handle', 'Usuario copiado')),
                   ),
-                if (!_isOwner)
+                if (!_isOwner) ...[
+                  item(
+                    icon: Icons.flag_outlined,
+                    title: 'Reportar perfil',
+                    onTap: () => closeThen(
+                      () => showReportContentSheet(
+                        context,
+                        targetType: ReportTargetType.user,
+                        targetId: user.id,
+                      ),
+                    ),
+                  ),
                   item(
                     icon: Icons.block,
                     title: 'Bloquear',
                     color: KairoColors.errorText,
                     onTap: () => closeThen(() => _blockUser(user)),
                   ),
+                ],
                 if (_isOwner) ...[
                   item(
                     icon: Icons.people_outline,
@@ -880,7 +943,7 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
             SliverPadding(
               padding: _tab == 'lista'
                   ? const EdgeInsets.only(top: 8, bottom: 100)
-                  : const EdgeInsets.fromLTRB(12, 8, 12, 100),
+                  : const EdgeInsets.only(bottom: 100),
               sliver: SliverToBoxAdapter(
                 child: _tab == 'lista'
                     ? ProfileTextList(
@@ -890,8 +953,11 @@ class _ProfileViewState extends State<ProfileView> with RouteAware {
                         onDeletePost: _deletePost,
                       )
                     : ProfilePostsGrid(
+                        key: ValueKey(_tab),
                         posts: _displayPosts,
                         moodBadge: user?.hasActiveMood == true ? user!.mood : null,
+                        saved: _tab == 'guardados',
+                        emptyText: _tab == 'guardados' ? 'Sin guardados' : 'Sin publicaciones',
                         onOpen: _openProfilePost,
                       ),
               ),

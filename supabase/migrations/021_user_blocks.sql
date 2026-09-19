@@ -11,15 +11,18 @@ create index if not exists user_blocks_blocked_idx on public.user_blocks (blocke
 alter table public.user_blocks enable row level security;
 
 drop policy if exists "Leer mis bloqueos" on public.user_blocks;
-create policy "Leer mis bloqueos" on public.user_blocks
+drop policy if exists "Read own blocks" on public.user_blocks;
+create policy "Read own blocks" on public.user_blocks
   for select using (auth.uid() = blocker_id);
 
 drop policy if exists "Bloquear" on public.user_blocks;
-create policy "Bloquear" on public.user_blocks
+drop policy if exists "Create blocks" on public.user_blocks;
+create policy "Create blocks" on public.user_blocks
   for insert with check (auth.uid() = blocker_id);
 
 drop policy if exists "Desbloquear" on public.user_blocks;
-create policy "Desbloquear" on public.user_blocks
+drop policy if exists "Delete own blocks" on public.user_blocks;
+create policy "Delete own blocks" on public.user_blocks
   for delete using (auth.uid() = blocker_id);
 
 grant select, insert, delete on public.user_blocks to authenticated;

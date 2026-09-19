@@ -16,10 +16,30 @@ Future<Uint8List?> showCoverCropper(BuildContext context, Uint8List bytes) {
   );
 }
 
+Future<Uint8List?> showMomentCoverCropper(BuildContext context, Uint8List bytes) {
+  return Navigator.of(context).push<Uint8List>(
+    MaterialPageRoute(
+      builder: (_) => CoverCropView(
+        bytes: bytes,
+        square: true,
+        title: 'Ajustar portada del momento',
+      ),
+      fullscreenDialog: true,
+    ),
+  );
+}
+
 class CoverCropView extends StatefulWidget {
-  const CoverCropView({super.key, required this.bytes});
+  const CoverCropView({
+    super.key,
+    required this.bytes,
+    this.square = false,
+    this.title = 'Ajustar portada',
+  });
 
   final Uint8List bytes;
+  final bool square;
+  final String title;
 
   @override
   State<CoverCropView> createState() => _CoverCropViewState();
@@ -94,8 +114,10 @@ class _CoverCropViewState extends State<CoverCropView> {
   @override
   Widget build(BuildContext context) {
     final screen = MediaQuery.sizeOf(context);
-    final cropW = screen.width;
-    final cropH = (screen.width / 2.15).clamp(170.0, 260.0);
+    final cropSize = (screen.shortestSide * 0.78).clamp(240.0, 360.0);
+    final cropW = widget.square ? cropSize : screen.width;
+    final cropH = widget.square ? cropSize : (screen.width / 2.15).clamp(170.0, 260.0);
+    final radius = widget.square ? cropSize * (22 / 82) : 0.0;
     final image = _decoded;
 
     return Scaffold(
@@ -106,7 +128,7 @@ class _CoverCropViewState extends State<CoverCropView> {
           icon: const Icon(Icons.close),
           onPressed: _confirming ? null : () => Navigator.pop(context),
         ),
-        title: const Text('Ajustar portada', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(widget.title, style: const TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           TextButton(
             onPressed: _confirming || image == null ? null : _confirm,
@@ -127,7 +149,8 @@ class _CoverCropViewState extends State<CoverCropView> {
                         child: SizedBox(
                           width: cropW,
                           height: cropH,
-                          child: ClipRect(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(radius),
                             child: RepaintBoundary(
                               key: _boundaryKey,
                               child: ColoredBox(
@@ -164,7 +187,7 @@ class _CoverCropViewState extends State<CoverCropView> {
                       ),
                       IgnorePointer(
                         child: CustomPaint(
-                          painter: _CoverDimPainter(cropW: cropW, cropH: cropH),
+                          painter: _CoverDimPainter(cropW: cropW, cropH: cropH, radius: radius),
                         ),
                       ),
                       Center(
@@ -173,6 +196,7 @@ class _CoverCropViewState extends State<CoverCropView> {
                             width: cropW,
                             height: cropH,
                             decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(radius),
                               border: Border.all(color: Colors.white, width: 2),
                             ),
                           ),
@@ -184,7 +208,7 @@ class _CoverCropViewState extends State<CoverCropView> {
                 const Padding(
                   padding: EdgeInsets.fromLTRB(24, 8, 24, 4),
                   child: Text(
-                    'Mueve y pellizca para elegir qué parte se ve en la portada. No se recorta sola.',
+                    'Mueve y pellizca para elegir qué parte se ve en la portada.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13, height: 1.35),
                   ),
@@ -247,10 +271,11 @@ class _CoverCropViewState extends State<CoverCropView> {
 }
 
 class _CoverDimPainter extends CustomPainter {
-  _CoverDimPainter({required this.cropW, required this.cropH});
+  _CoverDimPainter({required this.cropW, required this.cropH, this.radius = 0});
 
   final double cropW;
   final double cropH;
+  final double radius;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -261,12 +286,16 @@ class _CoverDimPainter extends CustomPainter {
     );
     final path = Path()
       ..fillType = PathFillType.evenOdd
-      ..addRect(Offset.zero & size)
-      ..addRect(hole);
+      ..addRect(Offset.zero & size);
+    if (radius > 0) {
+      path.addRRect(RRect.fromRectAndRadius(hole, Radius.circular(radius)));
+    } else {
+      path.addRect(hole);
+    }
     canvas.drawPath(path, Paint()..color = const Color(0xCC000000));
   }
 
   @override
   bool shouldRepaint(covariant _CoverDimPainter oldDelegate) =>
-      oldDelegate.cropW != cropW || oldDelegate.cropH != cropH;
+      oldDelegate.cropW != cropW || oldDelegate.cropH != cropH || oldDelegate.radius != radius;
 }

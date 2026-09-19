@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,12 +6,24 @@ import '../../../core/theme/kairo_colors.dart';
 import '../../../core/widgets/kairo_avatar.dart';
 import '../../../core/widgets/main_scaffold.dart';
 import '../../../features/auth/services/auth_service.dart';
-import '../live_catalog.dart';
+import '../services/live_feed_controller.dart';
+import '../widgets/live_widgets.dart';
 
-const _liveRed = Color(0xFFEF4444);
-
-class LiveListView extends StatelessWidget {
+class LiveListView extends StatefulWidget {
   const LiveListView({super.key});
+
+  @override
+  State<LiveListView> createState() => _LiveListViewState();
+}
+
+class _LiveListViewState extends State<LiveListView> {
+  final _feed = LiveFeedController.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _feed.ensureStarted();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,9 +35,9 @@ class LiveListView extends StatelessWidget {
       },
       child: MainScaffold(
         child: AnimatedBuilder(
-          animation: LiveCatalog.instance,
+          animation: _feed,
           builder: (context, _) {
-            final streams = LiveCatalog.instance.streams;
+            final streams = _feed.streams;
             final featured = streams.isNotEmpty ? streams.first : null;
             final rest = streams.length > 1 ? streams.sublist(1) : const <LiveStream>[];
 
@@ -41,19 +52,13 @@ class LiveListView extends StatelessWidget {
                     }
                     context.push('/live/go');
                   },
+                  onRefresh: _feed.refresh,
                 ),
                 Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    children: [
-                      const _SectionLabel('DESTACADO'),
-                      const SizedBox(height: 10),
-                      if (featured != null) _FeaturedCard(stream: featured),
-                      const SizedBox(height: 22),
-                      const _SectionLabel('MÁS TRANSMISIONES'),
-                      const SizedBox(height: 10),
-                      ...rest.map((s) => _StreamTile(stream: s)),
-                    ],
+                  child: RefreshIndicator(
+                    color: liveRed,
+                    onRefresh: _feed.refresh,
+                    child: _buildBody(featured, rest),
                   ),
                 ),
               ],
@@ -63,13 +68,82 @@ class LiveListView extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildBody(LiveStream? featured, List<LiveStream> rest) {
+    if (_feed.loading && !_feed.loaded) {
+      return const Center(child: CircularProgressIndicator(color: liveRed));
+    }
+    if (_feed.error != null && _feed.streams.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(24),
+        children: [
+          const SizedBox(height: 48),
+          const Icon(Icons.wifi_tethering_error, color: KairoColors.darkTextSecondary, size: 42),
+          const SizedBox(height: 12),
+          Text(
+            _feed.error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: KairoColors.darkTextSecondary, height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: TextButton(onPressed: _feed.refresh, child: const Text('Reintentar')),
+          ),
+        ],
+      );
+    }
+    if (featured == null) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(24),
+        children: const [
+          SizedBox(height: 48),
+          Icon(Icons.wifi_tethering, color: KairoColors.darkTextSecondary, size: 42),
+          SizedBox(height: 12),
+          Text(
+            'Nadie está en vivo ahora',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Cuando un hermano inicie una sala, aparecerá aquí.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: KairoColors.darkTextSecondary, height: 1.4),
+          ),
+        ],
+      );
+    }
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        const _SectionLabel('DESTACADO'),
+        const SizedBox(height: 10),
+        _FeaturedCard(stream: featured),
+        if (rest.isNotEmpty) ...[
+          const SizedBox(height: 22),
+          const _SectionLabel('MÁS TRANSMISIONES'),
+          const SizedBox(height: 10),
+          ...rest.map((s) => _StreamTile(stream: s)),
+        ],
+      ],
+    );
+  }
 }
 
 class _LiveHeader extends StatelessWidget {
-  const _LiveHeader({required this.onBack, required this.onGoLive});
+  const _LiveHeader({
+    required this.onBack,
+    required this.onGoLive,
+    required this.onRefresh,
+  });
 
   final VoidCallback onBack;
   final VoidCallback onGoLive;
+  final VoidCallback onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -91,22 +165,26 @@ class _LiveHeader extends StatelessWidget {
                   style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  'Transmisiones activas ahora',
+                  'Salas activas ahora',
                   style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
                 ),
               ],
             ),
+          ),
+          IconButton(
+            onPressed: onRefresh,
+            icon: const Icon(Icons.refresh, color: Colors.white70, size: 20),
           ),
           GestureDetector(
             onTap: onGoLive,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: _liveRed,
+                color: liveRed,
                 borderRadius: BorderRadius.circular(10),
                 boxShadow: [
                   BoxShadow(
-                    color: _liveRed.withValues(alpha: 0.45),
+                    color: liveRed.withValues(alpha: 0.45),
                     blurRadius: 14,
                     offset: const Offset(0, 2),
                   ),
@@ -166,13 +244,13 @@ class _FeaturedCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  CachedNetworkImage(imageUrl: stream.thumbnailUrl, fit: BoxFit.cover),
+                  LiveStage(stream: stream, compact: true),
                   const DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Color(0x33000000), Color(0x00000000), Color(0xCC000000)],
+                        colors: [Color(0x33000000), Color(0x00000000), Color(0x99000000)],
                       ),
                     ),
                   ),
@@ -181,16 +259,16 @@ class _FeaturedCard extends StatelessWidget {
                     left: 10,
                     child: Row(
                       children: [
-                        const _LiveBadge(showDot: true),
+                        const LiveBadge(showDot: true),
                         const SizedBox(width: 6),
-                        _Pill(label: stream.orientation),
+                        LivePill(label: stream.orientation),
                       ],
                     ),
                   ),
                   Positioned(
                     top: 10,
                     right: 10,
-                    child: _Pill(
+                    child: LivePill(
                       icon: Icons.remove_red_eye_outlined,
                       label: formatLiveCount(stream.viewerCount),
                     ),
@@ -260,8 +338,8 @@ class _StreamTile extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    CachedNetworkImage(imageUrl: stream.thumbnailUrl, fit: BoxFit.cover),
-                    const Positioned(top: 6, left: 6, child: _LiveBadge(compact: true)),
+                    LiveStage(stream: stream, compact: true),
+                    const Positioned(top: 6, left: 6, child: LiveBadge(compact: true)),
                   ],
                 ),
               ),
@@ -292,7 +370,7 @@ class _StreamTile extends StatelessWidget {
                         style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
                       ),
                       const SizedBox(width: 8),
-                      _Pill(label: stream.orientation, compact: true),
+                      LivePill(label: stream.orientation, compact: true),
                     ],
                   ),
                 ],
@@ -301,53 +379,6 @@ class _StreamTile extends StatelessWidget {
             const Icon(Icons.chevron_right, color: KairoColors.darkTextSecondary),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _LiveBadge extends StatelessWidget {
-  const _LiveBadge({this.compact = false, this.showDot = false});
-  final bool compact;
-  final bool showDot;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 8, vertical: compact ? 3 : 4),
-      decoration: BoxDecoration(color: _liveRed, borderRadius: BorderRadius.circular(5)),
-      child: Text(
-        showDot ? '● EN VIVO' : 'EN VIVO',
-        style: TextStyle(color: Colors.white, fontSize: compact ? 8 : 10, fontWeight: FontWeight.w800, letterSpacing: 0.4),
-      ),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.label, this.icon, this.compact = false});
-
-  final String label;
-  final IconData? icon;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 8, vertical: compact ? 2 : 4),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 12, color: Colors.white),
-            const SizedBox(width: 4),
-          ],
-          Text(label, style: TextStyle(color: Colors.white, fontSize: compact ? 10 : 11, fontWeight: FontWeight.w600)),
-        ],
       ),
     );
   }

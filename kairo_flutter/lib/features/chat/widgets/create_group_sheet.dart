@@ -1,9 +1,15 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
 import '../../../core/constants/chat_limits.dart';
 import '../../../core/models/kairo_user.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../core/widgets/kairo_avatar.dart';
 import '../../users/services/users_repository.dart';
+import '../services/group_content_policy.dart';
+import 'group_avatar.dart';
 
 class CreateGroupResult {
   const CreateGroupResult({
@@ -11,12 +17,20 @@ class CreateGroupResult {
     required this.isPublic,
     required this.adminsOnlyChat,
     required this.inviteeIds,
+    this.description,
+    this.imageBytes,
+    this.imageFileName,
+    this.imageMimeType,
   });
 
   final String name;
   final bool isPublic;
   final bool adminsOnlyChat;
   final List<String> inviteeIds;
+  final String? description;
+  final Uint8List? imageBytes;
+  final String? imageFileName;
+  final String? imageMimeType;
 }
 
 Future<CreateGroupResult?> showCreateGroupSheet(BuildContext context) {
@@ -38,13 +52,18 @@ class _CreateGroupSheet extends StatefulWidget {
 class _CreateGroupSheetState extends State<_CreateGroupSheet> {
   final _usersRepo = UsersRepository();
   final _nameController = TextEditingController();
+  final _descriptionController = TextEditingController();
   final _searchController = TextEditingController();
+  final _picker = ImagePicker();
 
   List<PersonaEntry> _friends = [];
   final Set<String> _selected = {};
   bool _isPublic = false;
   bool _adminsOnlyChat = false;
   bool _loading = true;
+  Uint8List? _imageBytes;
+  String? _imageFileName;
+  String? _imageMimeType;
 
   @override
   void initState() {
@@ -56,6 +75,7 @@ class _CreateGroupSheetState extends State<_CreateGroupSheet> {
   @override
   void dispose() {
     _nameController.dispose();
+    _descriptionController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -94,8 +114,33 @@ class _CreateGroupSheetState extends State<_CreateGroupSheet> {
     });
   }
 
+  Future<void> _pickImage() async {
+    try {
+      final file = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      GroupContentPolicy.validateImage(bytes: bytes, mimeType: file.mimeType ?? '');
+      if (!mounted) return;
+      setState(() {
+        _imageBytes = bytes;
+        _imageFileName = file.name;
+        _imageMimeType = file.mimeType ?? 'image/jpeg';
+      });
+    } on GroupImageException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
   void _submit() {
     if (!_canCreate) return;
+    try {
+      GroupContentPolicy.validateDescription(_descriptionController.text);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      return;
+    }
     Navigator.pop(
       context,
       CreateGroupResult(
@@ -103,6 +148,10 @@ class _CreateGroupSheetState extends State<_CreateGroupSheet> {
         isPublic: _isPublic,
         adminsOnlyChat: _adminsOnlyChat,
         inviteeIds: _selected.toList(),
+        description: _descriptionController.text.trim(),
+        imageBytes: _imageBytes,
+        imageFileName: _imageFileName,
+        imageMimeType: _imageMimeType,
       ),
     );
   }
@@ -155,6 +204,50 @@ class _CreateGroupSheetState extends State<_CreateGroupSheet> {
                 ),
               ),
               Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: _pickImage,
+                      child: Stack(
+                        children: [
+                          _imageBytes != null
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(14),
+                                  child: Image.memory(
+                                    _imageBytes!,
+                                    width: 64,
+                                    height: 64,
+                                    fit: BoxFit.cover,
+                                  ),
+                                )
+                              : const GroupAvatar(size: 64),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(
+                                color: KairoColors.primary500,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.camera_alt, size: 14, color: Colors.white),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'Imagen del grupo (opcional). No se permite contenido sexual, desnudez, bikini ni ropa interior.',
+                        style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: TextField(
                   controller: _nameController,
@@ -165,6 +258,27 @@ class _CreateGroupSheetState extends State<_CreateGroupSheet> {
                     hintStyle: const TextStyle(color: KairoColors.darkTextSecondary),
                     filled: true,
                     fillColor: KairoColors.darkBg,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: TextField(
+                  controller: _descriptionController,
+                  maxLength: ChatLimits.maxGroupDescriptionLength,
+                  minLines: 2,
+                  maxLines: 3,
+                  style: const TextStyle(color: KairoColors.darkText),
+                  decoration: InputDecoration(
+                    hintText: 'Descripción (opcional)',
+                    hintStyle: const TextStyle(color: KairoColors.darkTextSecondary),
+                    filled: true,
+                    fillColor: KairoColors.darkBg,
+                    counterStyle: const TextStyle(color: KairoColors.darkTextSecondary),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,

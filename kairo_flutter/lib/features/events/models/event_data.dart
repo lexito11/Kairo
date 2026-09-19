@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
+import '../../../core/models/event_item.dart';
 import '../constants/church_countries.dart';
+import '../constants/events_constants.dart';
 
 class EventData {
   const EventData({
@@ -43,6 +45,32 @@ class EventData {
     final today = DateTime.now();
     final todayDate = DateTime(today.year, today.month, today.day);
     return eventDate.isAfter(todayDate);
+  }
+
+  factory EventData.fromItem(EventItem item) {
+    final local = item.eventDate.toLocal();
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    final denomKey = (item.denomination ?? '').trim();
+    final denomLabel = denominationNames[denomKey] ?? (denomKey.isEmpty ? 'Cristiano' : denomKey);
+    final church = (item.churchName ?? '').trim().isNotEmpty
+        ? item.churchName!.trim()
+        : ((item.location ?? '').trim().isNotEmpty ? item.location!.trim() : 'Iglesia');
+    final now = DateTime.now();
+    final inProgress = !now.isBefore(local) && now.isBefore(local.add(const Duration(hours: 2)));
+    return EventData(
+      id: item.id,
+      title: item.title,
+      church: church,
+      location: (item.location ?? '').trim().isEmpty ? church : item.location!.trim(),
+      date: local,
+      time: '$hour:$minute',
+      category: (item.category ?? '').trim().isEmpty ? 'Evento' : item.category!.trim(),
+      denomination: denomLabel,
+      image: item.imageUrl ?? '',
+      isLive: inProgress,
+      description: (item.description ?? '').trim(),
+    );
   }
 }
 
@@ -234,6 +262,9 @@ class EventRequestFormData {
     this.category = '',
     this.date,
     this.time = '',
+    this.imageBytes,
+    this.imageName,
+    this.imageMime,
   });
 
   final String title;
@@ -242,6 +273,11 @@ class EventRequestFormData {
   final String category;
   final DateTime? date;
   final String time;
+  final Uint8List? imageBytes;
+  final String? imageName;
+  final String? imageMime;
+
+  bool get hasImage => imageBytes != null && imageBytes!.isNotEmpty;
 
   bool get isValid =>
       title.trim().isNotEmpty &&
@@ -278,6 +314,10 @@ class EventRequestFormData {
     String? category,
     DateTime? date,
     String? time,
+    Uint8List? imageBytes,
+    String? imageName,
+    String? imageMime,
+    bool clearImage = false,
   }) {
     return EventRequestFormData(
       title: title ?? this.title,
@@ -286,6 +326,9 @@ class EventRequestFormData {
       category: category ?? this.category,
       date: date ?? this.date,
       time: time ?? this.time,
+      imageBytes: clearImage ? null : (imageBytes ?? this.imageBytes),
+      imageName: clearImage ? null : (imageName ?? this.imageName),
+      imageMime: clearImage ? null : (imageMime ?? this.imageMime),
     );
   }
 

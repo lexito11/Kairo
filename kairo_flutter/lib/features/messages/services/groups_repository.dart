@@ -5,7 +5,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/constants/chat_limits.dart';
 import '../../../core/models/chat_group.dart';
 import '../../../core/models/group_invite.dart';
+import '../../../core/moderation/kairo_content_policy.dart';
 import '../../../core/services/storage_service.dart';
+import '../../chat/services/group_content_policy.dart';
 
 class GroupsRepository {
   GroupsRepository({SupabaseClient? client, StorageService? storage})
@@ -17,7 +19,25 @@ class GroupsRepository {
   String? get _userId => _client.auth.currentUser?.id;
 
   static const _groupFields =
+      'id, name, created_at, created_by, member_count, is_public, admins_only_chat, description, image_url';
+  static const _groupFieldsLegacy =
       'id, name, created_at, created_by, member_count, is_public, admins_only_chat';
+
+  bool _missingProfileColumns(PostgrestException e) {
+    final raw = e.message.toLowerCase();
+    return e.code == '42703' ||
+        ((raw.contains('description') || raw.contains('image_url')) &&
+            raw.contains('does not exist'));
+  }
+
+  Future<T> _withGroupFields<T>(Future<T> Function(String fields) run) async {
+    try {
+      return await run(_groupFields);
+    } on PostgrestException catch (e) {
+      if (_missingProfileColumns(e)) return run(_groupFieldsLegacy);
+      rethrow;
+    }
+  }
 
   Future<int> _adminCount(String groupId) async {
     final rows = await _client
@@ -44,11 +64,9 @@ class GroupsRepository {
     final uid = _userId;
     if (uid == null) return null;
 
-    final row = await _client
-        .from('chat_groups')
-        .select(_groupFields)
-        .eq('id', groupId)
-        .maybeSingle();
+    final row = await _withGroupFields(
+      (fields) => _client.from('chat_groups').select(fields).eq('id', groupId).maybeSingle(),
+    );
     if (row == null) return null;
 
     final memberRow = await _client
@@ -92,10 +110,12 @@ class GroupsRepository {
     final uid = _userId;
     if (uid == null) return [];
 
-    final memberships = await _client
-        .from('chat_group_members')
-        .select('role, group:chat_groups($_groupFields)')
-        .eq('user_id', uid);
+    final memberships = await _withGroupFields(
+      (fields) => _client
+          .from('chat_group_members')
+          .select('role, group:chat_groups($fields)')
+          .eq('user_id', uid),
+    );
 
     final result = <ChatGroup>[];
     for (final row in memberships as List) {
@@ -134,11 +154,55 @@ class GroupsRepository {
         (m as Map)['group_id'] as String: m['role'] as String,
     };
 
-    final rows = await _client
-        .from('chat_groups')
-        .select(_groupFields)
-        .order('created_at', ascending: false)
-        .limit(100);
+    final rows = await _withGroupFields(
+      (fields) => _client
+          .from('chat_groups')
+          .select(fields)
+          .order('created_at', ascending: false)
+          .limit(100),
+    );
+
+    final result = <ChatGroup>[];
+    for (final row in rows as List) {
+      final map = row as Map<String, dynamic>;
+      final id = map['id'] as String;
+      final role = memberRoles[id];
+      result.add(ChatGroup.fromJson(await _attachAdminCount({
+        ...map,
+        'is_member': role != null,
+        'is_admin': role == 'admin',
+      })));
+    }
+    return result;
+  }
+
+  static String _sanitizeIlike(String query) {
+    return query.replaceAll(RegExp(r'[%_,]'), ' ').trim();
+  }
+
+  Future<List<ChatGroup>> searchGroups(String query, {int limit = 20}) async {
+    final uid = _userId;
+    if (uid == null) return [];
+    final sanitized = _sanitizeIlike(query.replaceAll('#', ''));
+    if (sanitized.length < 2) return [];
+
+    final memberships = await _client
+        .from('chat_group_members')
+        .select('group_id, role')
+        .eq('user_id', uid);
+    final memberRoles = {
+      for (final m in memberships as List)
+        (m as Map)['group_id'] as String: m['role'] as String,
+    };
+
+    final rows = await _withGroupFields(
+      (fields) => _client
+          .from('chat_groups')
+          .select(fields)
+          .ilike('name', '%$sanitized%')
+          .order('member_count', ascending: false)
+          .limit(limit),
+    );
 
     final result = <ChatGroup>[];
     for (final row in rows as List) {
@@ -193,16 +257,87 @@ class GroupsRepository {
     required bool isPublic,
     required bool adminsOnlyChat,
     required List<String> inviteeIds,
+    String? description,
+    Uint8List? imageBytes,
+    String? imageFileName,
+    String? imageMimeType,
   }) async {
     if (inviteeIds.length < ChatLimits.minInviteesToCreateGroup) {
       throw MinInviteesException();
     }
+    KairoContentPolicy.assertText(name);
 
-    final group = await createGroup(name, isPublic: isPublic, adminsOnlyChat: adminsOnlyChat);
+    var group = await createGroup(name, isPublic: isPublic, adminsOnlyChat: adminsOnlyChat);
     for (final userId in inviteeIds) {
       await inviteUser(group.id, userId);
     }
+    if ((description != null && description.trim().isNotEmpty) || imageBytes != null) {
+      group = await updateGroupProfile(
+        group.id,
+        description: description,
+        imageBytes: imageBytes,
+        imageFileName: imageFileName,
+        imageMimeType: imageMimeType,
+      );
+    }
     return group;
+  }
+
+  Future<ChatGroup> updateGroupProfile(
+    String groupId, {
+    String? description,
+    Uint8List? imageBytes,
+    String? imageFileName,
+    String? imageMimeType,
+    bool clearImage = false,
+  }) async {
+    GroupContentPolicy.validateDescription(description);
+    String? imageUrl;
+    if (imageBytes != null) {
+      GroupContentPolicy.validateImage(
+        bytes: imageBytes,
+        mimeType: imageMimeType ?? '',
+      );
+      imageUrl = await _storage.uploadBytes(
+        bytes: imageBytes,
+        fileName: imageFileName ?? 'group.jpg',
+        mimeType: imageMimeType ?? 'image/jpeg',
+        subfolder: 'groups/$groupId/avatar',
+      );
+    }
+
+    try {
+      await _client.rpc('update_chat_group_profile', params: {
+        'p_group_id': groupId,
+        if (description != null) 'p_description': description.trim(),
+        if (imageUrl != null) 'p_image_url': imageUrl,
+        'p_clear_image': clearImage,
+      });
+    } on PostgrestException catch (e) {
+      if (e.message.contains('not_admin')) throw NotGroupAdminException();
+      if (e.message.contains('account_blocked')) {
+        throw const KairoAccountBlockedException();
+      }
+      if (e.message.contains('blocked_content')) throw GroupBlockedContentException();
+      if (e.message.contains('invalid_description')) throw GroupDescriptionException();
+      if (e.message.contains('invalid_image')) {
+        throw GroupImageException('La imagen no se pudo asociar al grupo.');
+      }
+      rethrow;
+    }
+
+    return await fetchGroup(groupId) ??
+        (throw Exception('No se pudo actualizar el grupo'));
+  }
+
+  Future<void> leaveGroup(String groupId) async {
+    try {
+      await _client.rpc('leave_chat_group', params: {'p_group_id': groupId});
+    } on PostgrestException catch (e) {
+      if (e.message.contains('last_admin')) throw LastAdminException();
+      if (e.message.contains('not_member')) throw NotGroupMemberException();
+      rethrow;
+    }
   }
 
   Future<ChatGroup> createGroup(
@@ -228,6 +363,7 @@ class GroupsRepository {
         'admin_count': 1,
       });
     } on PostgrestException catch (e) {
+      if (e.code == '42P01') throw GroupsUnavailableException();
       if (e.message.contains('group_limit_reached')) throw GroupLimitException();
       if (e.message.contains('invalid_name')) throw InvalidGroupNameException();
       rethrow;
@@ -337,6 +473,7 @@ class GroupsRepository {
   }) async {
     final uid = _userId;
     if (uid == null) throw Exception('Debes iniciar sesión');
+    KairoContentPolicy.assertText(content);
 
     final payload = {
       'group_id': groupId,
@@ -423,6 +560,11 @@ class GroupsRepository {
   }
 }
 
+class GroupsUnavailableException implements Exception {
+  @override
+  String toString() => 'Los grupos no están disponibles todavía. Inténtalo más tarde.';
+}
+
 class GroupLimitException implements Exception {
   @override
   String toString() => 'Solo puedes crear ${ChatLimits.maxGroupsCreatedPerUser} grupos.';
@@ -471,7 +613,13 @@ class MaxAdminsException implements Exception {
 
 class LastAdminException implements Exception {
   @override
-  String toString() => 'El grupo debe tener al menos un administrador.';
+  String toString() =>
+      'Promueve a otro administrador antes de salir. El grupo no puede quedarse sin responsable.';
+}
+
+class NotGroupMemberException implements Exception {
+  @override
+  String toString() => 'Ya no eres miembro de este grupo.';
 }
 
 class AdminsOnlyChatException implements Exception {

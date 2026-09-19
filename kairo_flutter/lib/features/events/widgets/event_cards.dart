@@ -5,6 +5,42 @@ import '../../../core/theme/kairo_colors.dart';
 import '../constants/events_constants.dart';
 import '../models/event_data.dart';
 
+class EventCover extends StatelessWidget {
+  const EventCover({
+    super.key,
+    required this.imageUrl,
+    this.height,
+    this.width,
+    this.fit = BoxFit.cover,
+  });
+
+  final String imageUrl;
+  final double? height;
+  final double? width;
+  final BoxFit fit;
+
+  @override
+  Widget build(BuildContext context) {
+    final placeholder = ColoredBox(
+      color: const Color(0xFF1A1A1A),
+      child: Center(
+        child: Icon(Icons.church_outlined, color: KairoColors.darkTextSecondary.withValues(alpha: 0.7), size: 36),
+      ),
+    );
+    if (imageUrl.trim().isEmpty) {
+      return SizedBox(height: height, width: width, child: placeholder);
+    }
+    return CachedNetworkImage(
+      imageUrl: imageUrl,
+      height: height,
+      width: width,
+      fit: fit,
+      placeholder: (_, __) => placeholder,
+      errorWidget: (_, __, ___) => placeholder,
+    );
+  }
+}
+
 class LiveBadge extends StatelessWidget {
   const LiveBadge({super.key, this.compact = false});
 
@@ -70,12 +106,7 @@ class EventTodayCard extends StatelessWidget {
           children: [
             Stack(
               children: [
-                CachedNetworkImage(
-                  imageUrl: event.image,
-                  height: imageHeight,
-                  width: width,
-                  fit: BoxFit.cover,
-                ),
+                EventCover(imageUrl: event.image, height: imageHeight, width: width),
                 if (event.isLive)
                   Positioned(
                     top: compact ? 6 : 12,
@@ -175,17 +206,17 @@ class EventUpcomingCard extends StatelessWidget {
     super.key,
     required this.event,
     required this.onTap,
-    required this.onAttending,
-    required this.onNotAttending,
-    required this.attendance,
+    this.onAttending,
+    this.onNotAttending,
+    this.attendance = const AttendanceInfo(),
     this.compact = false,
-    this.showAttendance = true,
+    this.showAttendance = false,
   });
 
   final EventData event;
   final VoidCallback onTap;
-  final VoidCallback onAttending;
-  final VoidCallback onNotAttending;
+  final VoidCallback? onAttending;
+  final VoidCallback? onNotAttending;
   final AttendanceInfo attendance;
   final bool compact;
   final bool showAttendance;
@@ -212,7 +243,7 @@ class EventUpcomingCard extends StatelessWidget {
             children: [
               Stack(
                 children: [
-                  CachedNetworkImage(imageUrl: event.image, height: 128, width: width, fit: BoxFit.cover),
+                  EventCover(imageUrl: event.image, height: 128, width: width),
                   Positioned(
                     top: 6,
                     left: 6,
@@ -302,7 +333,7 @@ class EventUpcomingCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               child: Stack(
                 children: [
-                  CachedNetworkImage(imageUrl: event.image, height: 128, width: width, fit: BoxFit.cover),
+                  EventCover(imageUrl: event.image, height: 128, width: width),
                   Positioned(
                     top: 8,
                     left: 8,
@@ -356,7 +387,7 @@ class EventUpcomingCard extends StatelessWidget {
                     count: attendance.attending,
                     selected: attendance.userStatus == AttendanceStatus.attending,
                     selectedColor: KairoColors.primary400,
-                    onTap: onAttending,
+                    onTap: onAttending ?? () {},
                   ),
                   const SizedBox(width: 8),
                   _AttendanceButton(
@@ -364,7 +395,7 @@ class EventUpcomingCard extends StatelessWidget {
                     count: attendance.notAttending,
                     selected: attendance.userStatus == AttendanceStatus.notAttending,
                     selectedColor: KairoColors.errorText,
-                    onTap: onNotAttending,
+                    onTap: onNotAttending ?? () {},
                   ),
                   const Spacer(),
                   ElevatedButton(
@@ -393,16 +424,18 @@ class EventFilteredCard extends StatelessWidget {
     super.key,
     required this.event,
     required this.onTap,
-    required this.onAttending,
-    required this.onNotAttending,
-    required this.attendance,
+    this.onAttending,
+    this.onNotAttending,
+    this.attendance = const AttendanceInfo(),
+    this.showAttendance = false,
   });
 
   final EventData event;
   final VoidCallback onTap;
-  final VoidCallback onAttending;
-  final VoidCallback onNotAttending;
+  final VoidCallback? onAttending;
+  final VoidCallback? onNotAttending;
   final AttendanceInfo attendance;
+  final bool showAttendance;
 
   @override
   Widget build(BuildContext context) {
@@ -424,7 +457,7 @@ class EventFilteredCard extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    CachedNetworkImage(imageUrl: event.image, fit: BoxFit.cover),
+                    EventCover(imageUrl: event.image),
                     if (event.isLive)
                       const Positioned(top: 12, left: 12, child: LiveBadge()),
                   ],
@@ -468,26 +501,28 @@ class EventFilteredCard extends StatelessWidget {
                           Expanded(child: Text(event.location, style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13), overflow: TextOverflow.ellipsis)),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          _AttendanceButton(
-                            label: 'Asistiré',
-                            count: attendance.attending,
-                            selected: attendance.userStatus == AttendanceStatus.attending,
-                            selectedColor: KairoColors.primary400,
-                            onTap: onAttending,
-                          ),
-                          const SizedBox(width: 8),
-                          _AttendanceButton(
-                            label: 'No asistiré',
-                            count: attendance.notAttending,
-                            selected: attendance.userStatus == AttendanceStatus.notAttending,
-                            selectedColor: KairoColors.errorText,
-                            onTap: onNotAttending,
-                          ),
-                        ],
-                      ),
+                      if (showAttendance) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            _AttendanceButton(
+                              label: 'Asistiré',
+                              count: attendance.attending,
+                              selected: attendance.userStatus == AttendanceStatus.attending,
+                              selectedColor: KairoColors.primary400,
+                              onTap: onAttending ?? () {},
+                            ),
+                            const SizedBox(width: 8),
+                            _AttendanceButton(
+                              label: 'No asistiré',
+                              count: attendance.notAttending,
+                              selected: attendance.userStatus == AttendanceStatus.notAttending,
+                              selectedColor: KairoColors.errorText,
+                              onTap: onNotAttending ?? () {},
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,

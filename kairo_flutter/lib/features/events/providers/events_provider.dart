@@ -1,15 +1,14 @@
-import 'dart:math';
-
 import 'package:flutter/foundation.dart';
 
 import '../../auth/services/auth_service.dart';
 import '../constants/events_constants.dart';
-import '../data/events_mock_data.dart';
 import '../models/event_data.dart';
 import '../models/estado_verificacion.dart';
 import '../services/churches_repository.dart';
 import '../services/events_prefs_service.dart';
 import '../services/events_repository.dart';
+
+enum EventDateRange { any, today, week, month }
 
 class EventsProvider extends ChangeNotifier {
   EventsProvider({
@@ -19,21 +18,22 @@ class EventsProvider extends ChangeNotifier {
   })  : _prefs = prefs ?? EventsPrefsService(),
         _churchesRepository = churchesRepository ?? ChurchesRepository(),
         _eventsRepository = eventsRepository ?? EventsRepository() {
-    _initAttendance();
-    _loadDenomination();
+    _bootstrap();
   }
 
   final EventsPrefsService _prefs;
   final ChurchesRepository _churchesRepository;
   final EventsRepository _eventsRepository;
-  final List<EventData> allEvents = buildMockEvents();
-  final Map<String, AttendanceInfo> attendanceCounts = {};
+  List<EventData> allEvents = [];
 
   String? selectedDenomination;
   bool showInitialSelector = false;
   bool isLoading = true;
+  bool eventsLoading = false;
+  String? eventsError;
   EventFilterType activeFilter = EventFilterType.todos;
   EventScope eventScope = EventScope.cristianos;
+  EventDateRange dateRange = EventDateRange.any;
   EventData? selectedEvent;
   bool showChurchRegistration = false;
   bool showEventRequestForm = false;
@@ -58,17 +58,7 @@ class EventsProvider extends ChangeNotifier {
   String? myChurchStatus;
   bool hasPendingEventRequest = false;
 
-  void _initAttendance() {
-    final random = Random();
-    for (final event in allEvents) {
-      attendanceCounts[event.id] = AttendanceInfo(
-        attending: random.nextInt(50) + 10,
-        notAttending: random.nextInt(20) + 1,
-      );
-    }
-  }
-
-  Future<void> _loadDenomination() async {
+  Future<void> _bootstrap() async {
     isLoading = true;
     notifyListeners();
 
@@ -89,6 +79,23 @@ class EventsProvider extends ChangeNotifier {
 
     isLoading = false;
     notifyListeners();
+    await refreshEvents();
+  }
+
+  Future<void> refreshEvents() async {
+    eventsLoading = allEvents.isEmpty;
+    eventsError = null;
+    notifyListeners();
+    try {
+      final denomination = eventScope == EventScope.iglesia ? selectedDenomination : null;
+      final items = await _eventsRepository.fetchUpcoming(denomination: denomination);
+      allEvents = items.map(EventData.fromItem).toList();
+    } catch (e) {
+      eventsError = _eventsRepository.mapError(e);
+    } finally {
+      eventsLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> _refreshMyChurch() async {
@@ -134,6 +141,34 @@ class EventsProvider extends ChangeNotifier {
     }).toList();
   }
 
+  bool _matchesDenominationFilter(EventData event, String filterName) {
+    final label = event.denomination.toLowerCase();
+    final key = denominationNames.entries
+        .firstWhere(
+          (e) => e.value.toLowerCase() == filterName.toLowerCase() || e.key == filterName.toLowerCase(),
+          orElse: () => MapEntry(filterName.toLowerCase(), filterName),
+        )
+        .key;
+    return label == filterName.toLowerCase() || label == key;
+  }
+
+  bool _inDateRange(EventData event) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final eventDay = DateTime(event.date.year, event.date.month, event.date.day);
+    switch (dateRange) {
+      case EventDateRange.any:
+        return true;
+      case EventDateRange.today:
+        return eventDay == today;
+      case EventDateRange.week:
+        final end = today.add(const Duration(days: 7));
+        return !eventDay.isBefore(today) && eventDay.isBefore(end);
+      case EventDateRange.month:
+        return event.date.year == now.year && event.date.month == now.month;
+    }
+  }
+
   List<EventData> getFilteredEvents() {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -145,12 +180,7 @@ class EventsProvider extends ChangeNotifier {
           final eventDate = DateTime(event.date.year, event.date.month, event.date.day);
           if (eventDate != today) return false;
           if (event.isLive) return true;
-          final eventTime = event.time.split('-').first.trim();
-          final parts = eventTime.split(':');
-          final hours = int.tryParse(parts[0]) ?? 0;
-          final minutes = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
-          final eventDateTime = DateTime(event.date.year, event.date.month, event.date.day, hours, minutes);
-          return !eventDateTime.isBefore(now);
+          return !event.date.isBefore(now);
         }).toList();
       case EventFilterType.enVivo:
         events = allEvents.where((e) => e.isLive).toList();
@@ -160,27 +190,32 @@ class EventsProvider extends ChangeNotifier {
         events = List<EventData>.from(allEvents);
     }
 
-    if (eventScope == EventScope.cristianos || eventScope == EventScope.iglesia) {
-      if (selectedChristianCategories.isNotEmpty) {
-        events = events.where((e) => selectedChristianCategories.contains(e.denomination)).toList();
-      }
-      if (selectedChristianTypes.isNotEmpty) {
-        events = events.where((event) {
-          final cat = event.category.toLowerCase();
-          return selectedChristianTypes.any((type) {
-            final t = type.toLowerCase();
-            if (t.startsWith('cultos')) return cat.contains('culto');
-            if (t.startsWith('estudios')) return cat.contains('estudio');
-            if (t.startsWith('conferencias')) return cat.contains('conferencia');
-            if (t.startsWith('retiros')) return cat.contains('retiro');
-            if (t.startsWith('alabanza')) return cat.contains('alabanza');
-            if (t.startsWith('bautismos')) return cat.contains('bautism');
-            return false;
-          });
-        }).toList();
-      }
+    if (eventScope == EventScope.iglesia && selectedDenomination != null) {
+      events = events.where((e) => _matchesDenominationFilter(e, selectedDenomination!)).toList();
     }
 
+    if (selectedChristianCategories.isNotEmpty) {
+      events = events.where((e) {
+        return selectedChristianCategories.any((name) => _matchesDenominationFilter(e, name));
+      }).toList();
+    }
+    if (selectedChristianTypes.isNotEmpty) {
+      events = events.where((event) {
+        final cat = event.category.toLowerCase();
+        return selectedChristianTypes.any((type) {
+          final t = type.toLowerCase();
+          if (t.startsWith('cultos')) return cat.contains('culto');
+          if (t.startsWith('estudios')) return cat.contains('estudio');
+          if (t.startsWith('conferencias')) return cat.contains('conferencia');
+          if (t.startsWith('retiros')) return cat.contains('retiro');
+          if (t.startsWith('alabanza')) return cat.contains('alabanza');
+          if (t.startsWith('bautismos')) return cat.contains('bautism');
+          return cat.contains(t);
+        });
+      }).toList();
+    }
+
+    events = events.where(_inDateRange).toList();
     return filterBySearch(events);
   }
 
@@ -190,6 +225,7 @@ class EventsProvider extends ChangeNotifier {
     selectedDenomination = denomination;
     showInitialSelector = false;
     notifyListeners();
+    await refreshEvents();
   }
 
   void setActiveFilter(EventFilterType filter) {
@@ -199,6 +235,12 @@ class EventsProvider extends ChangeNotifier {
 
   void setEventScope(EventScope scope) {
     eventScope = scope;
+    notifyListeners();
+    refreshEvents();
+  }
+
+  void setDateRange(EventDateRange range) {
+    dateRange = dateRange == range ? EventDateRange.any : range;
     notifyListeners();
   }
 
@@ -285,7 +327,6 @@ class EventsProvider extends ChangeNotifier {
     final registeredLocally = await _prefs.hasRegisteredChurch();
     final status = myChurchStatus ?? EstadoVerificacion.normalize(await _prefs.getChurchStatus());
 
-    // Ya tiene iglesia (o quedó registrada localmente): nunca volver a pedir registro.
     if (myChurch != null || registeredLocally) {
       if (myChurch?.isRejected == true || EstadoVerificacion.isRechazado(status)) {
         _showPendingNotice(
@@ -302,11 +343,6 @@ class EventsProvider extends ChangeNotifier {
           title: 'En revisión',
           message:
               'Tu iglesia está siendo evaluada. Cuando sea aprobada podrás solicitar la creación de eventos.',
-        );
-      } else if (hasPendingEventRequest) {
-        _showPendingNotice(
-          title: 'Evento en revisión',
-          message: 'Ya tienes una solicitud de evento pendiente. Espera la aprobación para publicar otra.',
         );
       } else {
         showChurchRegistration = false;
@@ -399,15 +435,16 @@ class EventsProvider extends ChangeNotifier {
         churchId: myChurch?.id,
         denomination: selectedDenomination,
       );
-      hasPendingEventRequest = true;
+      hasPendingEventRequest = false;
       eventRequestForm = EventRequestFormData.empty;
       showEventRequestForm = false;
       _showPendingNotice(
-        title: 'Evento en revisión',
-        message: 'Tu solicitud de evento fue enviada. Quedará en espera hasta ser aprobada.',
+        title: 'Evento publicado',
+        message: 'Tu evento ya está visible en el catálogo de KAIRO.',
       );
+      await refreshEvents();
     } catch (e) {
-      eventSubmitError = e.toString().replaceFirst('Exception: ', '');
+      eventSubmitError = _eventsRepository.mapError(e);
     } finally {
       eventSubmitting = false;
       notifyListeners();
@@ -423,44 +460,4 @@ class EventsProvider extends ChangeNotifier {
     churchSubmitError = null;
     notifyListeners();
   }
-
-  void handleAttending(String eventId) {
-    final current = attendanceCounts[eventId] ?? const AttendanceInfo();
-    if (current.userStatus == AttendanceStatus.attending) {
-      attendanceCounts[eventId] = current.copyWith(attending: current.attending - 1, clearUserStatus: true);
-    } else if (current.userStatus == AttendanceStatus.notAttending) {
-      attendanceCounts[eventId] = current.copyWith(
-        attending: current.attending + 1,
-        notAttending: current.notAttending - 1,
-        userStatus: AttendanceStatus.attending,
-      );
-    } else {
-      attendanceCounts[eventId] = current.copyWith(
-        attending: current.attending + 1,
-        userStatus: AttendanceStatus.attending,
-      );
-    }
-    notifyListeners();
-  }
-
-  void handleNotAttending(String eventId) {
-    final current = attendanceCounts[eventId] ?? const AttendanceInfo();
-    if (current.userStatus == AttendanceStatus.notAttending) {
-      attendanceCounts[eventId] = current.copyWith(notAttending: current.notAttending - 1, clearUserStatus: true);
-    } else if (current.userStatus == AttendanceStatus.attending) {
-      attendanceCounts[eventId] = current.copyWith(
-        attending: current.attending - 1,
-        notAttending: current.notAttending + 1,
-        userStatus: AttendanceStatus.notAttending,
-      );
-    } else {
-      attendanceCounts[eventId] = current.copyWith(
-        notAttending: current.notAttending + 1,
-        userStatus: AttendanceStatus.notAttending,
-      );
-    }
-    notifyListeners();
-  }
-
-  AttendanceInfo attendanceFor(String eventId) => attendanceCounts[eventId] ?? const AttendanceInfo();
 }

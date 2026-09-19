@@ -9,7 +9,15 @@ kairo_flutter/*.iml
 
 # Secrets
 .env
+*.env
 *.env.local
+!.env.example
+
+# Native local machine files / caches
+kairo_flutter/android/local.properties
+kairo_flutter/android/.gradle/
+kairo_flutter/ios/Flutter/ephemeral/
+kairo_flutter/macos/Flutter/ephemeral/
 
 # OS
 .DS_Store

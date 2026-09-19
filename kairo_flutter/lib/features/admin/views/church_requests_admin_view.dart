@@ -42,6 +42,11 @@ class _ChurchRequestsAdminViewState extends State<ChurchRequestsAdminView> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Moderación',
+            onPressed: () => context.push('/admin/moderation'),
+            icon: const Icon(Icons.shield_outlined, color: KairoColors.darkTextSecondary),
+          ),
+          IconButton(
             onPressed: admin.loading || admin.actionLoading ? null : () => admin.load(),
             icon: const Icon(Icons.refresh, color: KairoColors.darkTextSecondary),
           ),

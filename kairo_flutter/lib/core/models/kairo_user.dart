@@ -11,6 +11,10 @@ class KairoUser {
     this.moodUpdatedAt,
     this.createdAt,
     this.usernameChangedAt,
+    this.accountStatus = 'active',
+    this.infractionCount = 0,
+    this.blockedAt,
+    this.blockedReason,
   });
 
   final String id;
@@ -24,8 +28,15 @@ class KairoUser {
   final DateTime? moodUpdatedAt;
   final DateTime? createdAt;
   final DateTime? usernameChangedAt;
+  final String accountStatus;
+  final int infractionCount;
+  final DateTime? blockedAt;
+  final String? blockedReason;
+
+  bool get isAccountBlocked => accountStatus == 'blocked';
 
   static const moodLockDuration = Duration(hours: 24);
+  static const moodMaxLength = 21;
 
   bool get hasActiveMood {
     final value = mood?.trim();
@@ -65,6 +76,10 @@ class KairoUser {
       moodUpdatedAt: moodUpdatedAt ?? this.moodUpdatedAt,
       createdAt: createdAt,
       usernameChangedAt: usernameChangedAt ?? this.usernameChangedAt,
+      accountStatus: accountStatus,
+      infractionCount: infractionCount,
+      blockedAt: blockedAt,
+      blockedReason: blockedReason,
     );
   }
   String get handle => username != null ? '@$username' : '';
@@ -105,6 +120,12 @@ class KairoUser {
       moodUpdatedAt: date(json['mood_updated_at']),
       createdAt: date(json['created_at']),
       usernameChangedAt: date(json['username_changed_at']),
+      accountStatus: text(json['account_status']) ?? 'active',
+      infractionCount: json['infraction_count'] is int
+          ? json['infraction_count'] as int
+          : int.tryParse('${json['infraction_count'] ?? 0}') ?? 0,
+      blockedAt: date(json['blocked_at']),
+      blockedReason: text(json['blocked_reason']),
     );
   }
 }

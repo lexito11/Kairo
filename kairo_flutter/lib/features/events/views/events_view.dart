@@ -40,7 +40,13 @@ class EventsView extends StatelessWidget {
           Column(
             children: [
               const EventsHeader(),
-              Expanded(child: _EventsContent(provider: provider)),
+              Expanded(
+                child: RefreshIndicator(
+                  color: KairoColors.primary500,
+                  onRefresh: provider.refreshEvents,
+                  child: _EventsBody(provider: provider),
+                ),
+              ),
             ],
           ),
           if (provider.selectedEvent != null) EventDetailModal(event: provider.selectedEvent!),
@@ -71,6 +77,7 @@ class _EventsContent extends StatelessWidget {
   Widget build(BuildContext context) {
     if (provider.activeFilter == EventFilterType.todos) {
       return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         children: [
           _TodaySection(provider: provider),
@@ -81,6 +88,40 @@ class _EventsContent extends StatelessWidget {
     }
 
     return _FilteredList(provider: provider);
+  }
+}
+
+class _EventsBody extends StatelessWidget {
+  const _EventsBody({required this.provider});
+
+  final EventsProvider provider;
+
+  @override
+  Widget build(BuildContext context) {
+    if (provider.eventsLoading && provider.allEvents.isEmpty) {
+      return const Center(child: CircularProgressIndicator(color: KairoColors.primary500));
+    }
+    if (provider.eventsError != null && provider.allEvents.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(24),
+        children: [
+          const SizedBox(height: 48),
+          const Icon(Icons.event_busy, color: KairoColors.darkTextSecondary, size: 42),
+          const SizedBox(height: 12),
+          Text(
+            provider.eventsError!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: KairoColors.darkTextSecondary, height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: TextButton(onPressed: provider.refreshEvents, child: const Text('Reintentar')),
+          ),
+        ],
+      );
+    }
+    return _EventsContent(provider: provider);
   }
 }
 
@@ -160,10 +201,7 @@ class _UpcomingSection extends StatelessWidget {
                 final event = events[i];
                 return EventUpcomingCard(
                   event: event,
-                  attendance: provider.attendanceFor(event.id),
                   onTap: () => provider.openEvent(event),
-                  onAttending: () => provider.handleAttending(event.id),
-                  onNotAttending: () => provider.handleNotAttending(event.id),
                 );
               },
             ),
@@ -189,6 +227,7 @@ class _FilteredList extends StatelessWidget {
     };
 
     return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16),
       children: [
         Row(
@@ -212,10 +251,7 @@ class _FilteredList extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 16),
               child: EventFilteredCard(
                 event: event,
-                attendance: provider.attendanceFor(event.id),
                 onTap: () => provider.openEvent(event),
-                onAttending: () => provider.handleAttending(event.id),
-                onNotAttending: () => provider.handleNotAttending(event.id),
               ),
             );
           }),

@@ -26,6 +26,8 @@ class _SignInViewState extends State<SignInView> {
 
   String? _error;
   bool _loading = false;
+  bool _resending = false;
+  bool _needsEmailConfirmation = false;
   bool _rememberLogin = false;
 
   @override
@@ -35,12 +37,11 @@ class _SignInViewState extends State<SignInView> {
   }
 
   Future<void> _loadRememberedCredentials() async {
-    final saved = await _prefs.getRememberedCredentials();
+    final saved = await _prefs.getRememberedEmail();
     if (!mounted || saved == null) return;
     setState(() {
       _rememberLogin = true;
-      _email.text = saved.email;
-      _password.text = saved.password;
+      _email.text = saved;
     });
   }
 
@@ -51,10 +52,36 @@ class _SignInViewState extends State<SignInView> {
     super.dispose();
   }
 
+  Future<void> _resendConfirmation() async {
+    final email = _email.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _error = 'Escribe un email válido para reenviar la confirmación');
+      return;
+    }
+    setState(() {
+      _error = null;
+      _resending = true;
+    });
+    try {
+      await _auth.resendSignupConfirmation(email);
+      if (!mounted) return;
+      setState(() => _error = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Te enviamos de nuevo el correo de confirmación')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = AuthService.mapAuthError(e));
+    } finally {
+      if (mounted) setState(() => _resending = false);
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _error = null;
+      _needsEmailConfirmation = false;
       _loading = true;
     });
     try {
@@ -63,17 +90,21 @@ class _SignInViewState extends State<SignInView> {
         password: _password.text,
       );
       if (_rememberLogin) {
-        await _prefs.saveRememberedCredentials(
-          email: _email.text,
-          password: _password.text,
-        );
+        await _prefs.saveRememberedEmail(_email.text);
       } else {
-        await _prefs.clearRememberedCredentials();
+        await _prefs.clearRememberedEmail();
       }
       if (!mounted) return;
       context.go('/feed');
     } catch (e) {
-      setState(() => _error = AuthService.mapAuthError(e));
+      final mapped = AuthService.mapAuthError(e);
+      final raw = e.toString().toLowerCase();
+      setState(() {
+        _error = mapped;
+        _needsEmailConfirmation = raw.contains('not confirmed') ||
+            raw.contains('email not confirmed') ||
+            raw.contains('confirm your email');
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -137,6 +168,8 @@ class _SignInViewState extends State<SignInView> {
                             controller: _email,
                             hint: 'tu@email.com',
                             keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.email, AutofillHints.username],
                             enabled: !_loading,
                             validator: (v) {
                               if (v == null || v.trim().isEmpty) {
@@ -153,11 +186,29 @@ class _SignInViewState extends State<SignInView> {
                             hint: '••••••••',
                             obscureText: true,
                             showVisibilityToggle: true,
+                            textInputAction: TextInputAction.done,
+                            autofillHints: const [AutofillHints.password],
+                            onFieldSubmitted: (_) => _submit(),
                             enabled: !_loading,
                             validator: (v) =>
                                 (v == null || v.isEmpty) ? 'La contraseña es requerida' : null,
                           ),
-                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: _loading
+                                  ? null
+                                  : () => context.go('/auth/forgot-password'),
+                              child: const Text(
+                                '¿Olvidaste tu contraseña?',
+                                style: TextStyle(
+                                  color: KairoColors.primary400,
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ),
                           InkWell(
                             onTap: _loading
                                 ? null
@@ -183,7 +234,7 @@ class _SignInViewState extends State<SignInView> {
                                   const SizedBox(width: 8),
                                   const Expanded(
                                     child: Text(
-                                      'Recordar mis datos de inicio de sesión',
+                                      'Recordar mi correo en este dispositivo',
                                       style: TextStyle(
                                         fontSize: 13,
                                         color: KairoColors.darkTextSecondary,
@@ -200,6 +251,16 @@ class _SignInViewState extends State<SignInView> {
                             loading: _loading,
                             onPressed: _submit,
                           ),
+                          if (_needsEmailConfirmation) ...[
+                            const SizedBox(height: 12),
+                            TextButton(
+                              onPressed: (_loading || _resending) ? null : _resendConfirmation,
+                              child: Text(
+                                _resending ? 'Reenviando...' : 'Reenviar correo de confirmación',
+                                style: const TextStyle(color: KairoColors.primary400),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 24),
                           Center(
                             child: Text.rich(

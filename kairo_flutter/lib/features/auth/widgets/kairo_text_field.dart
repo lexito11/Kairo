@@ -10,6 +10,9 @@ class KairoTextField extends StatefulWidget {
     this.obscureText = false,
     this.showVisibilityToggle = false,
     this.keyboardType,
+    this.textInputAction,
+    this.autofillHints,
+    this.onFieldSubmitted,
     this.enabled = true,
     this.validator,
   });
@@ -20,6 +23,9 @@ class KairoTextField extends StatefulWidget {
   final bool obscureText;
   final bool showVisibilityToggle;
   final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final Iterable<String>? autofillHints;
+  final ValueChanged<String>? onFieldSubmitted;
   final bool enabled;
   final String? Function(String?)? validator;
 
@@ -62,6 +68,9 @@ class _KairoTextFieldState extends State<KairoTextField> {
           controller: widget.controller,
           obscureText: _obscured,
           keyboardType: widget.keyboardType,
+          textInputAction: widget.textInputAction,
+          autofillHints: widget.autofillHints,
+          onFieldSubmitted: widget.onFieldSubmitted,
           enabled: widget.enabled,
           validator: widget.validator,
           style: const TextStyle(color: KairoColors.darkText),

@@ -9,6 +9,7 @@ import '../../../core/theme/kairo_colors.dart';
 import '../../stories/services/stories_repository.dart';
 import '../../stories/widgets/story_viewer.dart';
 import '../services/moments_repository.dart';
+import '../views/cover_crop_view.dart';
 
 class MomentsStrip extends StatefulWidget {
   const MomentsStrip({
@@ -329,12 +330,15 @@ class _MomentEditorSheetState extends State<_MomentEditorSheet> {
   }
 
   Future<void> _pickCover() async {
-    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
-    if (file == null) return;
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 95);
+    if (file == null || !mounted) return;
+    final original = await file.readAsBytes();
+    if (!mounted) return;
+    final cropped = await showMomentCoverCropper(context, original);
+    if (cropped == null || cropped.isEmpty || !mounted) return;
     setState(() => _saving = true);
     try {
-      final bytes = await file.readAsBytes();
-      final url = await _repo.uploadCover(bytes: bytes, fileName: file.name);
+      final url = await _repo.uploadCover(bytes: cropped, fileName: 'moment-cover.png');
       if (!mounted) return;
       setState(() => _coverImageUrl = url);
     } finally {
@@ -463,14 +467,16 @@ class _MomentEditorSheetState extends State<_MomentEditorSheet> {
               ),
             ),
             if (_coverImageUrl != null) ...[
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: CachedNetworkImage(
-                  imageUrl: _coverImageUrl!,
-                  height: 88,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
+              const SizedBox(height: 12),
+              Center(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: CachedNetworkImage(
+                    imageUrl: _coverImageUrl!,
+                    width: _MomentTile._size,
+                    height: _MomentTile._size,
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
             ],

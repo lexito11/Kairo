@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/models/kairo_user.dart';
 import '../../../core/models/post.dart';
-import '../../../core/services/prefs_service.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../core/utils/format_time_ago.dart';
 import '../../../core/widgets/kairo_avatar.dart';
 import '../../posts/services/posts_repository.dart';
+import '../../posts/services/saved_posts_repository.dart';
 import '../../posts/widgets/amen_likers_sheet.dart';
+import '../../moderation/services/reports_repository.dart';
+import '../../moderation/widgets/report_content_sheet.dart';
 
 class VideoPostOverlay extends StatefulWidget {
   const VideoPostOverlay({
@@ -38,7 +40,7 @@ class VideoPostOverlay extends StatefulWidget {
 }
 
 class _VideoPostOverlayState extends State<VideoPostOverlay> {
-  final _prefs = PrefsService();
+  final _savedRepo = SavedPostsRepository();
   bool _saved = false;
   bool _expanded = false;
 
@@ -63,13 +65,22 @@ class _VideoPostOverlayState extends State<VideoPostOverlay> {
   }
 
   Future<void> _loadSaved() async {
-    final saved = await _prefs.isPostSaved(widget.post.id);
-    if (mounted) setState(() => _saved = saved);
+    try {
+      final saved = await _savedRepo.isSaved(widget.post.id);
+      if (mounted) setState(() => _saved = saved);
+    } catch (_) {}
   }
 
   Future<void> _toggleSaved() async {
-    final saved = await _prefs.toggleSavedPost(widget.post.id);
-    if (mounted) setState(() => _saved = saved);
+    try {
+      final saved = await _savedRepo.toggle(widget.post.id);
+      if (mounted) setState(() => _saved = saved);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo guardar la publicación')),
+      );
+    }
   }
 
   @override
@@ -266,6 +277,19 @@ class _VideoPostOverlayState extends State<VideoPostOverlay> {
                 onTap: () {
                   Navigator.pop(ctx);
                   widget.onMenuSelected?.call('delete_post');
+                },
+              ),
+            if (!widget.isOwner)
+              ListTile(
+                leading: const Icon(Icons.flag_outlined, color: KairoColors.darkText),
+                title: const Text('Reportar', style: TextStyle(color: KairoColors.darkText)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  showReportContentSheet(
+                    context,
+                    targetType: ReportTargetType.post,
+                    targetId: widget.post.id,
+                  );
                 },
               ),
           ],

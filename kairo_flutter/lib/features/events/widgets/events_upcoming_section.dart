@@ -45,8 +45,6 @@ class EventsUpcomingSection extends StatelessWidget {
                 return EventUpcomingCard(
                   event: event,
                   compact: true,
-                  showAttendance: false,
-                  attendance: provider.attendanceFor(event.id),
                   onTap: () {
                     if (onEventTap != null) {
                       onEventTap!(event.id);
@@ -54,8 +52,6 @@ class EventsUpcomingSection extends StatelessWidget {
                       context.push('/events');
                     }
                   },
-                  onAttending: () => provider.handleAttending(event.id),
-                  onNotAttending: () => provider.handleNotAttending(event.id),
                 );
               },
             ),

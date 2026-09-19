@@ -11,86 +11,50 @@ class ProfilePostsGrid extends StatelessWidget {
     required this.posts,
     required this.onOpen,
     this.moodBadge,
+    this.saved = false,
+    this.emptyText = 'Sin publicaciones',
   });
 
   final List<Post> posts;
   final ValueChanged<Post> onOpen;
   final String? moodBadge;
+  final bool saved;
+  final String emptyText;
 
-  static const _gap = 8.0;
-  static const _radius = 14.0;
+  static const _gap = 1.5;
+  static const _aspect = 3 / 4;
 
   @override
   Widget build(BuildContext context) {
     if (posts.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(32),
+      return Padding(
+        padding: const EdgeInsets.all(32),
         child: Center(
-          child: Text('Sin publicaciones', style: TextStyle(color: KairoColors.darkTextSecondary)),
+          child: Text(emptyText, style: const TextStyle(color: KairoColors.darkTextSecondary)),
         ),
       );
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cell = (constraints.maxWidth - _gap * 2) / 3;
-        final tiles = <Widget>[];
-        var i = 0;
-
-        if (posts.length == 1) {
-          tiles.add(SizedBox(
-            height: cell,
-            width: double.infinity,
-            child: _tile(posts[0], featured: true),
-          ));
-          i = 1;
-        } else if (posts.length >= 2) {
-          tiles.add(Row(
-            children: [
-              Expanded(
-                child: SizedBox(height: cell, child: _tile(posts[0], featured: true)),
-              ),
-              const SizedBox(width: _gap),
-              SizedBox(
-                width: cell,
-                height: cell,
-                child: _tile(posts[1]),
-              ),
-            ],
-          ));
-          i = 2;
-        }
-
-        while (i < posts.length) {
-          final row = posts.skip(i).take(3).toList();
-          tiles.add(const SizedBox(height: _gap));
-          tiles.add(Row(
-            children: [
-              for (var j = 0; j < 3; j++) ...[
-                if (j > 0) const SizedBox(width: _gap),
-                Expanded(
-                  child: j < row.length
-                      ? SizedBox(height: cell, child: _tile(row[j]))
-                      : const SizedBox.shrink(),
-                ),
-              ],
-            ],
-          ));
-          i += 3;
-        }
-
-        return Column(children: tiles);
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      itemCount: posts.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: _gap,
+        crossAxisSpacing: _gap,
+        childAspectRatio: _aspect,
+      ),
+      itemBuilder: (context, i) {
+        final post = posts[i];
+        return _ProfilePostTile(
+          post: post,
+          onOpen: () => onOpen(post),
+          moodBadge: i == 0 ? moodBadge : null,
+          saved: saved,
+        );
       },
-    );
-  }
-
-  Widget _tile(Post post, {bool featured = false}) {
-    return _ProfilePostTile(
-      post: post,
-      featured: featured,
-      moodBadge: featured ? moodBadge : null,
-      radius: _radius,
-      onOpen: () => onOpen(post),
     );
   }
 }
@@ -98,17 +62,15 @@ class ProfilePostsGrid extends StatelessWidget {
 class _ProfilePostTile extends StatelessWidget {
   const _ProfilePostTile({
     required this.post,
-    required this.featured,
-    required this.radius,
     required this.onOpen,
     this.moodBadge,
+    this.saved = false,
   });
 
   final Post post;
-  final bool featured;
-  final double radius;
   final VoidCallback onOpen;
   final String? moodBadge;
+  final bool saved;
 
   @override
   Widget build(BuildContext context) {
@@ -120,14 +82,14 @@ class _ProfilePostTile extends StatelessWidget {
             : media.first.url;
     final isVideo = media.isNotEmpty && media.first.isVideo;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: GestureDetector(
-        onTap: onOpen,
+    return GestureDetector(
+      onTap: onOpen,
+      child: ColoredBox(
+        color: KairoColors.darkCard,
         child: Stack(
           fit: StackFit.expand,
           children: [
-            ColoredBox(color: KairoColors.darkCard, child: _media(imageUrl, isVideo)),
+            _media(imageUrl, isVideo),
             const DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -139,34 +101,61 @@ class _ProfilePostTile extends StatelessWidget {
             ),
             if (moodBadge != null && moodBadge!.isNotEmpty)
               Positioned(
-                top: 8,
-                left: 8,
+                top: 6,
+                left: 6,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                   decoration: BoxDecoration(
                     color: const Color(0x99000000),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     moodBadge!,
-                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
+            if (saved)
+              const Positioned(
+                top: 6,
+                right: 6,
+                child: Icon(Icons.bookmark, color: Colors.white, size: 16),
+              ),
+            if (isVideo)
+              Positioned(
+                top: 6,
+                right: saved ? 26 : 6,
+                child: const Icon(Icons.play_arrow, color: Colors.white, size: 18),
+              ),
             Positioned(
-              left: 8,
-              bottom: 8,
+              left: 6,
+              bottom: 6,
               child: _stat(Icons.favorite, post.likesCount),
             ),
-            if (featured)
-              Positioned(
-                right: 8,
-                bottom: 8,
-                child: _stat(Icons.chat_bubble_outline, post.commentsCount),
-              ),
+            Positioned(
+              right: 6,
+              bottom: 6,
+              child: _stat(Icons.chat_bubble_outline, post.commentsCount),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _stat(IconData icon, int count) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: Colors.white, size: 13),
+        const SizedBox(width: 3),
+        Text(
+          '$count',
+          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+        ),
+      ],
     );
   }
 
@@ -183,13 +172,7 @@ class _ProfilePostTile extends StatelessWidget {
       );
     }
     if (isVideo) {
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          _fallback(),
-          const Center(child: Icon(Icons.play_circle_fill, color: Colors.white70, size: 36)),
-        ],
-      );
+      return ColoredBox(color: KairoColors.darkHover, child: _fallback());
     }
     return _fallback();
   }
@@ -205,28 +188,20 @@ class _ProfilePostTile extends StatelessWidget {
       child: text.isEmpty
           ? const SizedBox.expand()
           : Padding(
-              padding: const EdgeInsets.fromLTRB(10, 28, 10, 28),
+              padding: const EdgeInsets.all(8),
               child: Text(
                 text,
-                maxLines: 4,
+                maxLines: 5,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontSize: 12, height: 1.3),
+                style: const TextStyle(color: Colors.white, fontSize: 11, height: 1.25),
               ),
             ),
     );
   }
-
-  Widget _stat(IconData icon, int count) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: Colors.white, size: 13),
-        const SizedBox(width: 4),
-        Text(
-          '$count',
-          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-        ),
-      ],
-    );
-  }
 }
+
+
+
+
+
+

@@ -16,11 +16,15 @@ abstract final class KairoTheme {
       colorScheme: const ColorScheme.dark(
         primary: KairoColors.primary500,
         surface: KairoColors.darkBg,
+        surfaceTint: Colors.transparent,
       ),
       appBarTheme: AppBarTheme(
         backgroundColor: KairoColors.darkBg,
         foregroundColor: KairoColors.darkText,
         elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
         titleTextStyle: textTheme.titleLarge?.copyWith(
           color: KairoColors.darkText,
           fontWeight: FontWeight.w600,

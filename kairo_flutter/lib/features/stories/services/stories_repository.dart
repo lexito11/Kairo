@@ -147,16 +147,46 @@ class StoriesRepository {
     }
   }
 
+  Future<List<Story>> fetchActiveStoriesForUser(String userId) async {
+    try {
+      List rows;
+      try {
+        rows = await _client
+            .from('stories')
+            .select(
+                'id, media_url, media_type, created_at, expires_at, author_id, sound_name')
+            .eq('author_id', userId)
+            .gt('expires_at', DateTime.now().toIso8601String())
+            .order('created_at', ascending: true);
+      } catch (_) {
+        rows = await _client
+            .from('stories')
+            .select(
+                'id, media_url, media_type, created_at, expires_at, author_id')
+            .eq('author_id', userId)
+            .gt('expires_at', DateTime.now().toIso8601String())
+            .order('created_at', ascending: true);
+      }
+      if (rows.isEmpty) return [];
+      final user = await _client
+          .from('users')
+          .select('id, email, name, username, image')
+          .eq('id', userId)
+          .maybeSingle();
+      if (user == null) return [];
+      return [
+        for (final r in rows.cast<Map<String, dynamic>>())
+          Story.fromJson({...r, 'author': user}),
+      ];
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<List<Story>> fetchMyActiveStories() async {
     final uid = _userId;
     if (uid == null) return [];
-    try {
-      final groups = await fetchStoryGroups();
-      for (final group in groups) {
-        if (group.author.id == uid) return group.stories;
-      }
-    } catch (_) {}
-    return [];
+    return fetchActiveStoriesForUser(uid);
   }
 
   /// Historias propias para destacar: las de 24 h y las del archivo.

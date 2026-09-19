@@ -1,8 +1,12 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:video_player/video_player.dart';
 import '../../../core/models/post.dart';
+import '../../../core/services/storage_service.dart';
+import '../../../core/services/video_ingest_service.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../../core/widgets/kairo_avatar.dart';
 import '../../../features/auth/services/auth_service.dart';
@@ -22,6 +26,7 @@ class _CreatePostViewState extends State<CreatePostView> {
   final _content = TextEditingController();
   PostKind _postKind = PostKind.post;
   bool _submitting = false;
+  bool _optimizingVideo = false;
   String? _error;
   final List<DraftMedia> _files = [];
 
@@ -101,14 +106,42 @@ class _CreatePostViewState extends State<CreatePostView> {
   }
 
   Future<void> _pickVideo() async {
-    if (_isPrayer) return;
+    if (_isPrayer || _optimizingVideo) return;
     final picker = ImagePicker();
-    final video = await picker.pickVideo(source: ImageSource.gallery, maxDuration: const Duration(seconds: 60));
+    final video = await picker.pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: VideoIngestService.maxDuration,
+    );
     if (video == null || _files.length >= 12 || !mounted) return;
-    final bytes = await video.readAsBytes();
-    await _reviewAndAdd([
-      DraftMedia(bytes: bytes, name: video.name, mime: 'video/mp4', path: video.path),
-    ]);
+    setState(() {
+      _error = null;
+      _optimizingVideo = true;
+    });
+    try {
+      final originalBytes = await video.readAsBytes();
+      final prepared = await VideoIngestService().prepare(
+        name: video.name,
+        originalBytes: originalBytes,
+        path: video.path,
+      );
+      if (!mounted) return;
+      await _reviewAndAdd([
+        DraftMedia(
+          bytes: prepared.bytes,
+          name: prepared.name,
+          mime: prepared.mime,
+          path: prepared.path,
+        ),
+      ]);
+    } on VideoIngestException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _optimizingVideo = false);
+    }
   }
 
   Future<void> _openExistingReview() async {
@@ -144,7 +177,14 @@ class _CreatePostViewState extends State<CreatePostView> {
       if (!mounted) return;
       context.go('/feed');
     } catch (e) {
-      setState(() => _error = e.toString());
+      final raw = e.toString();
+      setState(() {
+        _error = raw.contains('300 MB') || raw.contains('too large') || raw.contains('413')
+            ? StorageService.tooLargeMessage
+            : raw.contains('3 minutos')
+                ? VideoIngestService.tooLongMessage
+                : raw.replaceFirst('Exception: ', '');
+      });
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -180,6 +220,14 @@ class _CreatePostViewState extends State<CreatePostView> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (_error != null) KairoAlert(message: _error!, type: KairoAlertType.error),
+            if (_optimizingVideo)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 16),
+                child: Text(
+                  'Optimizando el video (máx. 3 min, 1080p)…',
+                  style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13),
+                ),
+              ),
             const Text('¿Qué vas a publicar?', style: TextStyle(color: KairoColors.darkText, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             ..._kinds.map((k) => _KindTile(
@@ -210,7 +258,7 @@ class _CreatePostViewState extends State<CreatePostView> {
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: _submitting || _files.length >= 12 ? null : _pickImages,
+                      onPressed: _submitting || _optimizingVideo || _files.length >= 12 ? null : _pickImages,
                       icon: const Icon(Icons.photo_library_outlined),
                       label: Text('Fotos (${_files.where((f) => !f.isVideo).length}/12)'),
                       style: OutlinedButton.styleFrom(foregroundColor: KairoColors.primary400, side: BorderSide.none, backgroundColor: KairoColors.darkCard),
@@ -219,7 +267,7 @@ class _CreatePostViewState extends State<CreatePostView> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: _submitting || _files.length >= 12 ? null : _pickVideo,
+                      onPressed: _submitting || _optimizingVideo || _files.length >= 12 ? null : _pickVideo,
                       icon: const Icon(Icons.videocam_outlined),
                       label: const Text('Video'),
                       style: OutlinedButton.styleFrom(foregroundColor: KairoColors.primary400, side: BorderSide.none, backgroundColor: KairoColors.darkCard),
@@ -315,7 +363,7 @@ class _ComposePreview extends StatelessWidget {
             ],
             const SizedBox(height: 10),
             SizedBox(
-              height: 112,
+              height: 148,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: files.length,
@@ -324,40 +372,138 @@ class _ComposePreview extends StatelessWidget {
                   final file = files[i];
                   return GestureDetector(
                     onTap: onOpen,
-                    child: Stack(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: SizedBox(
-                            width: 112,
-                            height: 112,
-                            child: file.isVideo
-                                ? const ColoredBox(
-                                    color: Color(0xFF111111),
-                                    child: Center(child: Icon(Icons.videocam, color: Colors.white70)),
-                                  )
-                                : Image.memory(file.bytes, fit: BoxFit.cover),
+                    child: SizedBox(
+                      width: 112,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: SizedBox(
+                                  width: 112,
+                                  height: 112,
+                                  child: file.isVideo
+                                      ? _PausedVideoThumb(path: file.path)
+                                      : Image.memory(file.bytes, fit: BoxFit.cover),
+                                ),
+                              ),
+                              Positioned(
+                                top: 4,
+                                right: 4,
+                                child: GestureDetector(
+                                  onTap: () => onRemove(i),
+                                  child: const CircleAvatar(
+                                    radius: 11,
+                                    backgroundColor: Colors.black54,
+                                    child: Icon(Icons.close, size: 14, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        Positioned(
-                          top: 4,
-                          right: 4,
-                          child: GestureDetector(
-                            onTap: () => onRemove(i),
-                            child: const CircleAvatar(
-                              radius: 11,
-                              backgroundColor: Colors.black54,
-                              child: Icon(Icons.close, size: 14, color: Colors.white),
+                          if (file.isVideo) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              file.name.trim().isEmpty ? 'Video' : file.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: KairoColors.darkTextSecondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          ),
-                        ),
-                      ],
+                          ],
+                        ],
+                      ),
                     ),
                   );
                 },
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PausedVideoThumb extends StatefulWidget {
+  const _PausedVideoThumb({this.path});
+
+  final String? path;
+
+  @override
+  State<_PausedVideoThumb> createState() => _PausedVideoThumbState();
+}
+
+class _PausedVideoThumbState extends State<_PausedVideoThumb> {
+  VideoPlayerController? _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final path = widget.path;
+    if (path == null || path.isEmpty) return;
+    try {
+      final uri = Uri.tryParse(path);
+      final canNetwork = path.startsWith('blob:') ||
+          path.startsWith('http') ||
+          path.startsWith('data:') ||
+          kIsWeb;
+      final controller = canNetwork && uri != null
+          ? VideoPlayerController.networkUrl(uri)
+          : VideoPlayerController.networkUrl(Uri.file(path));
+      _controller = controller;
+      await controller.initialize();
+      await controller.setVolume(0);
+      await controller.setLooping(false);
+      await controller.seekTo(Duration.zero);
+      await controller.pause();
+      if (controller.value.position == Duration.zero && controller.value.size != Size.zero) {
+        await controller.play();
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        await controller.pause();
+        await controller.seekTo(Duration.zero);
+      }
+      if (mounted) setState(() => _ready = true);
+    } catch (_) {
+      if (mounted) setState(() => _ready = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.pause();
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    if (!_ready || c == null || !c.value.isInitialized) {
+      return const ColoredBox(
+        color: Color(0xFF111111),
+        child: Center(child: Icon(Icons.videocam, color: Colors.white70)),
+      );
+    }
+    return ColoredBox(
+      color: const Color(0xFF111111),
+      child: FittedBox(
+        fit: BoxFit.cover,
+        clipBehavior: Clip.hardEdge,
+        child: SizedBox(
+          width: c.value.size.width,
+          height: c.value.size.height,
+          child: IgnorePointer(child: VideoPlayer(c)),
         ),
       ),
     );

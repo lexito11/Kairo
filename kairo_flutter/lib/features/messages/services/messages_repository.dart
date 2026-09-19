@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/kairo_user.dart';
 import '../../../core/models/message.dart';
+import '../../../core/moderation/kairo_content_policy.dart';
 
 class MessagesRepository {
   MessagesRepository({SupabaseClient? client}) : _client = client ?? Supabase.instance.client;
@@ -88,16 +89,21 @@ class MessagesRepository {
   }) async {
     final uid = _userId;
     if (uid == null) throw Exception('Debes iniciar sesión');
+    KairoContentPolicy.assertText(content);
 
-    final row = await _client.from('messages').insert({
-      'sender_id': uid,
-      'receiver_id': receiverId,
-      'content': content,
-      if (mediaUrl != null) 'media_url': mediaUrl,
-      if (mediaType != null) 'media_type': mediaType,
-    }).select().single();
-
-    return ChatMessage.fromJson(row);
+    try {
+      final row = await _client.from('messages').insert({
+        'sender_id': uid,
+        'receiver_id': receiverId,
+        'content': content,
+        if (mediaUrl != null) 'media_url': mediaUrl,
+        if (mediaType != null) 'media_type': mediaType,
+      }).select().single();
+      return ChatMessage.fromJson(row);
+    } on PostgrestException catch (e) {
+      KairoContentPolicy.throwIfBlocked(e);
+      rethrow;
+    }
   }
 
   RealtimeChannel subscribeToMessages(void Function(ChatMessage) onMessage) {

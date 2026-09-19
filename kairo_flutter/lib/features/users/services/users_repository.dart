@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/kairo_user.dart';
+import '../../../core/moderation/kairo_content_policy.dart';
 import '../../../core/utils/username.dart';
 
 class UserProfileData {
@@ -149,7 +150,12 @@ class UsersRepository {
     if (await isBlockedEitherWay(userId)) {
       throw Exception('No puedes agregar a esta persona');
     }
-    await _client.from('follows').insert({'follower_id': uid, 'following_id': userId});
+    try {
+      await _client.from('follows').insert({'follower_id': uid, 'following_id': userId});
+    } on PostgrestException catch (e) {
+      KairoContentPolicy.throwIfBlocked(e);
+      rethrow;
+    }
   }
 
   Future<void> unfollow(String userId) async {
@@ -394,20 +400,36 @@ class UsersRepository {
   Future<List<KairoUser>> searchUsers(String query, {int limit = 20}) async {
     final uid = _userId;
     final q = query.trim();
-    if (uid == null || q.length < 2) return [];
+    if (q.length < 2) return [];
 
     final sanitized = q.replaceAll(RegExp(r'[%_,]'), ' ').trim();
     if (sanitized.length < 2) return [];
 
     final rows = await _client
         .from('users')
-        .select('id, email, name, username, image')
-        .neq('id', uid)
-        .or('name.ilike.%$sanitized%,username.ilike.%$sanitized%')
-        .limit(limit);
+        .select('id, email, name, username, image, bio')
+        .or('name.ilike.%$sanitized%,username.ilike.%$sanitized%,bio.ilike.%$sanitized%')
+        .limit(limit + 1);
 
     return (rows as List)
         .map((r) => KairoUser.fromJson(r as Map<String, dynamic>))
+        .where((u) => u.id != uid)
+        .take(limit)
+        .toList();
+  }
+
+  Future<List<KairoUser>> fetchSuggestedUsers({int limit = 8}) async {
+    final uid = _userId;
+    var query = _client.from('users').select('id, email, name, username, image, bio');
+    if (uid != null) {
+      query = query.neq('id', uid);
+    }
+    final rows = await query.limit(48);
+    final following = uid == null ? <String>{} : await fetchFollowingIds();
+    return (rows as List)
+        .map((r) => KairoUser.fromJson(r as Map<String, dynamic>))
+        .where((u) => !following.contains(u.id))
+        .take(limit)
         .toList();
   }
 
@@ -470,13 +492,18 @@ class UsersRepository {
   Future<void> updateMood(String mood) async {
     final uid = _userId;
     if (uid == null) throw Exception('Debes iniciar sesión');
+    final value = mood.trim();
+    if (value.isEmpty) throw Exception('Escribe cómo te sientes');
+    if (value.length > KairoUser.moodMaxLength) {
+      throw Exception('Máximo ${KairoUser.moodMaxLength} caracteres');
+    }
     final row = await _client.from('users').select('mood_updated_at').eq('id', uid).maybeSingle();
     final last = DateTime.tryParse(row?['mood_updated_at']?.toString() ?? '');
     if (last != null && DateTime.now().toUtc().difference(last.toUtc()) < KairoUser.moodLockDuration) {
       throw Exception('Podrás cambiar cómo te sientes después de 24 horas');
     }
     await _client.from('users').update({
-      'mood': mood,
+      'mood': value,
       'mood_updated_at': DateTime.now().toUtc().toIso8601String(),
     }).eq('id', uid);
   }
@@ -544,12 +571,19 @@ class UsersRepository {
     if (message.contains('USERNAME_INVALID')) {
       return 'El usuario debe tener entre 3 y 20 caracteres (letras, números o _)';
     }
+    if (message.contains('restricted_user_fields')) {
+      return 'No puedes modificar el estado de la cuenta.';
+    }
     return message.isNotEmpty ? message : 'No se pudo guardar el perfil';
   }
 
   Future<void> updateProfile({String? name, String? username, String? bio, String? image, String? coverUrl}) async {
     final uid = _userId;
     if (uid == null) throw Exception('Debes iniciar sesión');
+
+    KairoContentPolicy.assertText(name);
+    KairoContentPolicy.assertText(username);
+    KairoContentPolicy.assertText(bio);
 
     final payload = <String, dynamic>{
       if (name != null) 'name': name,
@@ -583,6 +617,7 @@ class UsersRepository {
     try {
       await _client.from('users').update(payload).eq('id', uid);
     } on PostgrestException catch (e) {
+      KairoContentPolicy.throwIfBlocked(e);
       final missingColumn = e.code == '42703' ||
           e.message.contains('username_changed_at') ||
           e.message.contains('cover_url');
@@ -590,7 +625,7 @@ class UsersRepository {
         payload.remove('username_changed_at');
         payload.remove('cover_url');
         if (payload.isEmpty) {
-          throw Exception('No se pudo guardar la portada. Ejecuta en Supabase la migración 020_profile_cover.sql');
+          throw Exception('No se pudo guardar la portada. Inténtalo de nuevo.');
         }
         try {
           await _client.from('users').update(payload).eq('id', uid);

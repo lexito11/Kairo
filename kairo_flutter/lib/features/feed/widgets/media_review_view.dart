@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -8,6 +9,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../../core/models/post.dart';
 import '../../../core/theme/kairo_colors.dart';
+import '../../../core/theme/kairo_layout.dart';
 import '../../../core/widgets/kairo_avatar.dart';
 import '../../auth/widgets/gradient_button.dart';
 
@@ -74,6 +76,7 @@ class MediaReviewView extends StatefulWidget {
 class _MediaReviewViewState extends State<MediaReviewView> {
   late final List<DraftMedia> _items;
   late final List<int> _turns;
+  late final List<int> _cropResetTicks;
   late final List<TransformationController> _zooms;
   final _previewKeys = <GlobalKey>[];
   final _page = PageController();
@@ -85,6 +88,7 @@ class _MediaReviewViewState extends State<MediaReviewView> {
     super.initState();
     _items = List<DraftMedia>.from(widget.items);
     _turns = List<int>.filled(_items.length, 0, growable: true);
+    _cropResetTicks = List<int>.filled(_items.length, 0, growable: true);
     _zooms = [for (var i = 0; i < _items.length; i++) TransformationController()];
     _previewKeys.addAll([for (var i = 0; i < _items.length; i++) GlobalKey()]);
   }
@@ -102,12 +106,19 @@ class _MediaReviewViewState extends State<MediaReviewView> {
 
   void _rotate() {
     if (_current.isVideo) return;
-    setState(() => _turns[_index] = (_turns[_index] + 1) % 4);
+    _zooms[_index].value = Matrix4.identity();
+    setState(() {
+      _turns[_index] = (_turns[_index] + 1) % 4;
+      _cropResetTicks[_index]++;
+    });
   }
 
   void _resetAdjust() {
     _zooms[_index].value = Matrix4.identity();
-    setState(() => _turns[_index] = 0);
+    setState(() {
+      _turns[_index] = 0;
+      _cropResetTicks[_index]++;
+    });
   }
 
   void _removeCurrent() {
@@ -118,6 +129,7 @@ class _MediaReviewViewState extends State<MediaReviewView> {
     setState(() {
       _items.removeAt(_index);
       _turns.removeAt(_index);
+      _cropResetTicks.removeAt(_index);
       _zooms.removeAt(_index).dispose();
       _previewKeys.removeAt(_index);
       if (_index >= _items.length) _index = _items.length - 1;
@@ -174,138 +186,115 @@ class _MediaReviewViewState extends State<MediaReviewView> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
+        fit: StackFit.expand,
         children: [
-          Expanded(
-            child: PageView.builder(
-              controller: _page,
-              itemCount: _items.length,
-              onPageChanged: (i) => setState(() => _index = i),
+          PageView.builder(
+            controller: _page,
+            itemCount: _items.length,
+            onPageChanged: (i) => setState(() => _index = i),
               itemBuilder: (context, i) {
                 final item = _items[i];
-                return Padding(
+                if (item.isVideo) {
+                  return ColoredBox(
+                    color: KairoColors.darkBg,
+                    child: _VideoPreview(path: item.path),
+                  );
+                }
+                return const ColoredBox(color: KairoColors.darkBg);
+              },
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                  child: Column(
+                  child: Text(
+                    _current.isVideo
+                        ? 'Pulsa para reproducir y confirma que es el video correcto.'
+                        : 'Pellizca y mueve para recortar la parte que quieres. Gira si hace falta.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
+                  ),
+                ),
+                if (_items.length > 1)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      '${_index + 1} / ${_items.length}',
+                      style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Row(
                     children: [
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: ColoredBox(
-                            color: const Color(0xFF111111),
-                            child: item.isVideo
-                                ? _VideoPreview(path: item.path)
-                                : RepaintBoundary(
-                                    key: _previewKeys[i],
-                                    child: InteractiveViewer(
-                                      transformationController: _zooms[i],
-                                      minScale: 1,
-                                      maxScale: 4,
-                                      child: Center(
-                                        child: RotatedBox(
-                                          quarterTurns: _turns[i],
-                                          child: Image.memory(item.bytes, fit: BoxFit.contain),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        item.isVideo ? 'Pulsa para reproducir y confirma que es el video correcto.' : 'Pellizca para ajustar el encuadre. Gira si hace falta.',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
-                      ),
+                      if (!_current.isVideo)
+                        _ToolChip(icon: Icons.rotate_90_degrees_ccw, label: 'Girar', onTap: _rotate),
+                      if (!_current.isVideo) ...[
+                        const SizedBox(width: 8),
+                        _ToolChip(icon: Icons.restart_alt, label: 'Reset', onTap: _resetAdjust),
+                      ],
+                      const Spacer(),
+                      _ToolChip(icon: Icons.delete_outline, label: 'Quitar', onTap: _removeCurrent, danger: true),
                     ],
                   ),
-                );
-              },
-            ),
-          ),
-          if (_items.length > 1)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                '${_index + 1} / ${_items.length}',
-                style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 12),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Row(
-              children: [
-                if (!_current.isVideo)
-                  _ToolChip(icon: Icons.rotate_90_degrees_ccw, label: 'Girar', onTap: _rotate),
-                if (!_current.isVideo) ...[
-                  const SizedBox(width: 8),
-                  _ToolChip(icon: Icons.restart_alt, label: 'Reset', onTap: _resetAdjust),
-                ],
-                const Spacer(),
-                _ToolChip(icon: Icons.delete_outline, label: 'Quitar', onTap: _removeCurrent, danger: true),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: KairoColors.darkCard,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Así se verá tu publicación',
-                      style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.4),
-                    ),
-                    const SizedBox(height: 10),
-                    if (widget.postKind == PostKind.testimony)
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 8),
-                        child: Text('Testimonio', style: TextStyle(color: KairoColors.primary400, fontSize: 12, fontWeight: FontWeight.w600)),
-                      ),
-                    Row(
-                      children: [
-                        KairoAvatar(imageUrl: widget.authorImage, name: name, size: 32),
-                        const SizedBox(width: 8),
-                        Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
-                      ],
-                    ),
-                    if (caption.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(caption, maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.35)),
-                    ],
-                    const SizedBox(height: 10),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: AspectRatio(
-                        aspectRatio: 4 / 5,
-                        child: _current.isVideo
-                            ? const ColoredBox(
-                                color: Color(0xFF111111),
-                                child: Center(child: Icon(Icons.videocam, color: Colors.white70, size: 36)),
-                              )
-                            : RotatedBox(
-                                quarterTurns: _turns[_index],
-                                child: Image.memory(_current.bytes, fit: BoxFit.cover, width: double.infinity, height: double.infinity),
-                              ),
-                      ),
-                    ),
-                  ],
                 ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-            child: GradientButton(
-              label: _saving ? 'Preparando...' : 'Usar en la publicación',
-              loading: _saving,
-              onPressed: _confirm,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Así se verá tu publicación',
+                        style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.4),
+                      ),
+                      const SizedBox(height: 10),
+                      if (widget.postKind == PostKind.testimony)
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 8),
+                          child: Text('Testimonio', style: TextStyle(color: KairoColors.primary400, fontSize: 12, fontWeight: FontWeight.w600)),
+                        ),
+                      Row(
+                        children: [
+                          KairoAvatar(imageUrl: widget.authorImage, name: name, size: 32),
+                          const SizedBox(width: 8),
+                          Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                        ],
+                      ),
+                      if (caption.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(caption, maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.35)),
+                      ],
+                      if (!_current.isVideo) ...[
+                        const SizedBox(height: 10),
+                        AspectRatio(
+                          aspectRatio: KairoLayout.feedImageAspectRatio,
+                          child: _FeedImageCropBox(
+                            boundaryKey: _previewKeys[_index],
+                            bytes: _current.bytes,
+                            turns: _turns[_index],
+                            zoom: _zooms[_index],
+                            resetTick: _cropResetTicks[_index],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                  child: GradientButton(
+                    label: _saving ? 'Preparando...' : 'Usar en la publicación',
+                    loading: _saving,
+                    onPressed: _confirm,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -331,7 +320,7 @@ class _ToolChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = danger ? KairoColors.errorText : Colors.white;
     return Material(
-      color: KairoColors.darkCard,
+      color: danger ? KairoColors.darkCard : Colors.transparent,
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
@@ -347,6 +336,129 @@ class _ToolChip extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _FeedImageCropBox extends StatefulWidget {
+  const _FeedImageCropBox({
+    required this.boundaryKey,
+    required this.bytes,
+    required this.turns,
+    required this.zoom,
+    required this.resetTick,
+  });
+
+  final GlobalKey boundaryKey;
+  final Uint8List bytes;
+  final int turns;
+  final TransformationController zoom;
+  final int resetTick;
+
+  @override
+  State<_FeedImageCropBox> createState() => _FeedImageCropBoxState();
+}
+
+class _FeedImageCropBoxState extends State<_FeedImageCropBox> {
+  ui.Image? _decoded;
+  bool _didCenter = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _decode();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FeedImageCropBox oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.bytes != widget.bytes) {
+      _decoded?.dispose();
+      _decoded = null;
+      _didCenter = false;
+      _decode();
+      return;
+    }
+    if (oldWidget.resetTick != widget.resetTick || oldWidget.turns != widget.turns) {
+      _didCenter = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _decoded?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _decode() async {
+    final codec = await ui.instantiateImageCodec(widget.bytes);
+    final frame = await codec.getNextFrame();
+    if (!mounted) {
+      frame.image.dispose();
+      return;
+    }
+    setState(() => _decoded = frame.image);
+  }
+
+  Size _displaySize(double cropW, double cropH) {
+    final image = _decoded!;
+    final srcW = widget.turns.isOdd ? image.height.toDouble() : image.width.toDouble();
+    final srcH = widget.turns.isOdd ? image.width.toDouble() : image.height.toDouble();
+    final cover = math.max(cropW / srcW, cropH / srcH);
+    return Size(srcW * cover, srcH * cover);
+  }
+
+  void _center(double cropW, double cropH) {
+    if (_decoded == null) return;
+    final size = _displaySize(cropW, cropH);
+    widget.zoom.value = Matrix4.identity()
+      ..translate((cropW - size.width) / 2, (cropH - size.height) / 2);
+    _didCenter = true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_decoded == null) {
+      return const Center(
+        child: CircularProgressIndicator(strokeWidth: 2, color: KairoColors.primary400),
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cropW = constraints.maxWidth;
+        final cropH = constraints.maxHeight;
+        if (!_didCenter && cropW.isFinite && cropH.isFinite && cropW > 0 && cropH > 0) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && !_didCenter) {
+              _center(cropW, cropH);
+              if (mounted) setState(() {});
+            }
+          });
+        }
+        final size = _displaySize(cropW, cropH);
+        return ClipRect(
+          child: RepaintBoundary(
+            key: widget.boundaryKey,
+            child: InteractiveViewer(
+              transformationController: widget.zoom,
+              constrained: false,
+              minScale: 1,
+              maxScale: 5,
+              boundaryMargin: const EdgeInsets.all(80),
+              child: RotatedBox(
+                quarterTurns: widget.turns,
+                child: Image.memory(
+                  widget.bytes,
+                  width: size.width,
+                  height: size.height,
+                  fit: BoxFit.fill,
+                  gaplessPlayback: true,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -423,6 +535,7 @@ class _VideoPreviewState extends State<_VideoPreview> {
         setState(() {});
       },
       child: Stack(
+        fit: StackFit.expand,
         alignment: Alignment.center,
         children: [
           FittedBox(

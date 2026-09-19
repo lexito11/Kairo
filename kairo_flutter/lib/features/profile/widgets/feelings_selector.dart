@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../core/models/kairo_user.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../users/services/users_repository.dart';
@@ -19,21 +20,13 @@ class FeelingsSelector extends StatefulWidget {
   final bool isOwner;
   final ValueChanged<String>? onChanged;
 
-  static const moods = [
-    ('🙏', 'Agradecido'),
-    ('😊', 'Feliz'),
-    ('💪', 'Motivado'),
-    ('🕊️', 'En paz'),
-    ('📖', 'Estudiando la Biblia'),
-    ('❤️', 'Bendecido'),
-  ];
-
   @override
   State<FeelingsSelector> createState() => _FeelingsSelectorState();
 }
 
 class _FeelingsSelectorState extends State<FeelingsSelector> {
   final _repo = UsersRepository();
+  late final TextEditingController _controller;
   String? _selected;
   DateTime? _updatedAt;
   bool _saving = false;
@@ -45,6 +38,7 @@ class _FeelingsSelectorState extends State<FeelingsSelector> {
     super.initState();
     _selected = widget.currentMood;
     _updatedAt = widget.moodUpdatedAt;
+    _controller = TextEditingController(text: _locked ? '' : (widget.currentMood ?? ''));
     _scheduleUnlock();
   }
 
@@ -53,6 +47,9 @@ class _FeelingsSelectorState extends State<FeelingsSelector> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.currentMood != widget.currentMood) {
       _selected = widget.currentMood;
+      if (!_locked) {
+        _controller.text = widget.currentMood ?? '';
+      }
     }
     if (oldWidget.moodUpdatedAt != widget.moodUpdatedAt) {
       _updatedAt = widget.moodUpdatedAt;
@@ -64,6 +61,7 @@ class _FeelingsSelectorState extends State<FeelingsSelector> {
   void dispose() {
     _unlockTimer?.cancel();
     _tickTimer?.cancel();
+    _controller.dispose();
     super.dispose();
   }
 
@@ -96,9 +94,10 @@ class _FeelingsSelectorState extends State<FeelingsSelector> {
     });
   }
 
-  Future<void> _pick(String emoji, String label) async {
+  Future<void> _save() async {
     if (!widget.isOwner || _saving || _locked) return;
-    final value = '$emoji $label';
+    final value = _controller.text.trim();
+    if (value.isEmpty) return;
     final now = DateTime.now();
     setState(() {
       _selected = value;
@@ -109,6 +108,7 @@ class _FeelingsSelectorState extends State<FeelingsSelector> {
     try {
       await _repo.updateMood(value);
       widget.onChanged?.call(value);
+      if (mounted) _controller.clear();
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -116,17 +116,13 @@ class _FeelingsSelectorState extends State<FeelingsSelector> {
           _updatedAt = widget.moodUpdatedAt;
         });
         _scheduleUnlock();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo guardar cómo te sientes')),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-  }
-
-  List<(String, String)> get _visibleMoods {
-    if (!_locked) return FeelingsSelector.moods;
-    return FeelingsSelector.moods
-        .where((m) => '${m.$1} ${m.$2}' == _selected)
-        .toList();
   }
 
   String get _remainingLabel {
@@ -138,12 +134,23 @@ class _FeelingsSelectorState extends State<FeelingsSelector> {
     return 'Podrás cambiarlo en $minutes min';
   }
 
+  Widget _moodChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: KairoColors.primary500,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(color: Colors.white, fontSize: 12),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.isOwner && !_locked) return const SizedBox.shrink();
-
-    final moods = _visibleMoods;
-    final showSelectedOnly = _locked && moods.isEmpty && (_selected?.isNotEmpty ?? false);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -170,47 +177,67 @@ class _FeelingsSelectorState extends State<FeelingsSelector> {
           ],
         ),
         const SizedBox(height: 10),
-        SizedBox(
-          height: 38,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: showSelectedOnly ? 1 : moods.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final label = showSelectedOnly ? _selected! : '${moods[i].$1} ${moods[i].$2}';
-              final active = _selected == label || showSelectedOnly;
-              return GestureDetector(
-                onTap: widget.isOwner && !_locked && !showSelectedOnly
-                    ? () => _pick(moods[i].$1, moods[i].$2)
-                    : null,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: active ? KairoColors.primary500 : KairoColors.darkCard,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: active ? Colors.white : KairoColors.darkTextSecondary,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        if (widget.isOwner && _locked) ...[
+        if (!widget.isOwner)
+          _moodChip(_selected!.trim())
+        else if (_locked) ...[
+          _moodChip(_selected!.trim()),
           const SizedBox(height: 8),
           Text(
             _remainingLabel,
-            style: const TextStyle(
-              color: KairoColors.darkTextSecondary,
-              fontSize: 11,
-            ),
+            style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 11),
           ),
-        ],
+        ] else
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  maxLength: KairoUser.moodMaxLength,
+                  inputFormatters: [
+                    LengthLimitingTextInputFormatter(KairoUser.moodMaxLength),
+                  ],
+                  style: const TextStyle(color: KairoColors.darkText, fontSize: 14),
+                  cursorColor: KairoColors.primary500,
+                  decoration: InputDecoration(
+                    hintText: 'Escribe cómo te sientes',
+                    hintStyle: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13),
+                    counterText: '',
+                    filled: true,
+                    fillColor: KairoColors.darkCard,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  onSubmitted: (_) => _save(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 40,
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: KairoColors.primary500,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Guardar', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                ),
+              ),
+            ],
+          ),
       ],
     );
   }

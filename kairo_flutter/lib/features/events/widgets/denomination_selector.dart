@@ -51,25 +51,22 @@ class _DenominationSelectorState extends State<DenominationSelector> {
         }
 
         return Material(
-          color: Colors.black.withValues(alpha: 0.8),
+          color: Colors.transparent,
           child: Padding(
             padding: EdgeInsets.symmetric(horizontal: hMargin, vertical: vMargin),
             child: Align(
               alignment: Alignment.center,
-              child: Container(
+              child: SizedBox(
                 width: cardWidth,
                 height: cardHeight,
-                padding: EdgeInsets.fromLTRB(
-                  isMobile ? 16 : 24,
-                  isMobile ? 16 : 24,
-                  isMobile ? 16 : 24,
-                  isMobile ? 12 : 20,
-                ),
-                decoration: BoxDecoration(
-                  color: KairoColors.darkCard,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Stack(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    isMobile ? 16 : 24,
+                    isMobile ? 16 : 24,
+                    isMobile ? 16 : 24,
+                    isMobile ? 12 : 20,
+                  ),
+                  child: Stack(
                   children: [
                     Column(
                   children: [
@@ -169,6 +166,7 @@ class _DenominationSelectorState extends State<DenominationSelector> {
                 ),
               ),
             ),
+          ),
           ),
         );
       },

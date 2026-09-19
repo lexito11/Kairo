@@ -10,6 +10,8 @@ class ChatGroup {
     this.isMember = true,
     this.isAdmin = false,
     this.adminCount = 1,
+    this.description,
+    this.imageUrl,
     this.lastMessagePreview,
     this.lastMessageAt,
   });
@@ -24,6 +26,8 @@ class ChatGroup {
   final bool isMember;
   final bool isAdmin;
   final int adminCount;
+  final String? description;
+  final String? imageUrl;
   final String? lastMessagePreview;
   final DateTime? lastMessageAt;
 
@@ -41,6 +45,8 @@ class ChatGroup {
       isMember: json['is_member'] as bool? ?? true,
       isAdmin: json['is_admin'] as bool? ?? false,
       adminCount: json['admin_count'] as int? ?? 1,
+      description: json['description'] as String?,
+      imageUrl: json['image_url'] as String?,
       lastMessagePreview: json['last_message_preview'] as String?,
       lastMessageAt: json['last_message_at'] != null
           ? DateTime.parse(json['last_message_at'] as String)

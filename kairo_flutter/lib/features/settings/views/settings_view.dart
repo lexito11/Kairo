@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/theme/kairo_colors.dart';
 import '../../auth/services/auth_service.dart';
+import '../../events/services/churches_repository.dart';
 import '../../users/services/users_repository.dart';
 import '../widgets/change_password_dialog.dart';
 
@@ -16,14 +17,24 @@ class SettingsView extends StatefulWidget {
 
 class _SettingsViewState extends State<SettingsView> {
   final _users = UsersRepository();
+  final _churches = ChurchesRepository();
   bool _saveStoryArchive = true;
   bool _archiveLoaded = false;
   bool _archiveSaving = false;
+  bool _isAdmin = false;
 
   @override
   void initState() {
     super.initState();
     _loadArchivePref();
+    _loadAdmin();
+  }
+
+  Future<void> _loadAdmin() async {
+    if (!AuthService().isSignedIn) return;
+    final admin = await _churches.isCurrentUserAdmin();
+    if (!mounted) return;
+    setState(() => _isAdmin = admin);
   }
 
   Future<void> _loadArchivePref() async {
@@ -139,6 +150,20 @@ class _SettingsViewState extends State<SettingsView> {
             secondary: const Icon(Icons.dark_mode_outlined),
             onChanged: theme.toggle,
           ),
+          if (_isAdmin) ...[
+            const _SectionLabel('Administración'),
+            _SettingsTile(
+              icon: Icons.shield_outlined,
+              title: 'Moderación',
+              subtitle: 'Reportes, infracciones y cuentas bloqueadas',
+              onTap: () => context.push('/admin/moderation'),
+            ),
+            _SettingsTile(
+              icon: Icons.church_outlined,
+              title: 'Solicitudes de iglesias',
+              onTap: () => context.push('/admin/churches'),
+            ),
+          ],
           const _SectionLabel('Información'),
           _SettingsTile(
             icon: Icons.info_outline,

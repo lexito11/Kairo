@@ -7,6 +7,8 @@ import '../../../core/theme/kairo_colors.dart';
 import '../../../core/widgets/kairo_avatar.dart';
 import '../../../features/auth/services/auth_service.dart';
 import '../../messages/services/messages_repository.dart';
+import '../../moderation/services/reports_repository.dart';
+import '../../moderation/widgets/report_content_sheet.dart';
 import '../../users/services/users_repository.dart';
 
 class ChatThreadView extends StatefulWidget {
@@ -178,6 +180,11 @@ class _ChatThreadViewState extends State<ChatThreadView> {
               onBack: () => context.pop(),
               onRemoveFriend: _removeFriend,
               onBlock: _blockUser,
+              onReport: () => showReportContentSheet(
+                context,
+                targetType: ReportTargetType.user,
+                targetId: widget.otherUserId,
+              ),
             ),
             Expanded(
               child: ScrollConfiguration(
@@ -311,6 +318,7 @@ class _ThreadHeader extends StatelessWidget {
     required this.onBack,
     required this.onRemoveFriend,
     required this.onBlock,
+    required this.onReport,
     this.imageUrl,
   });
 
@@ -319,6 +327,7 @@ class _ThreadHeader extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onRemoveFriend;
   final VoidCallback onBlock;
+  final VoidCallback onReport;
 
   @override
   Widget build(BuildContext context) {
@@ -381,8 +390,10 @@ class _ThreadHeader extends StatelessWidget {
             onSelected: (value) {
               if (value == 'remove') onRemoveFriend();
               if (value == 'block') onBlock();
+              if (value == 'report') onReport();
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'report', child: Text('Reportar')),
               PopupMenuItem(value: 'remove', child: Text('Eliminar de amigos')),
               PopupMenuItem(
                 value: 'block',

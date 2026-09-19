@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/comment.dart';
 import '../../../core/models/kairo_user.dart';
 import '../../../core/models/post.dart';
+import '../../../core/moderation/kairo_content_policy.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/utils/media_utils.dart';
 
@@ -69,6 +70,61 @@ class PostsRepository {
     return fetchUserPosts(uid);
   }
 
+  static String _sanitizeIlike(String query) {
+    return query.replaceAll(RegExp(r'[%_,]'), ' ').trim();
+  }
+
+  Future<List<Post>> searchPosts(String query, {int limit = 30}) async {
+    final sanitized = _sanitizeIlike(query.replaceAll('#', ''));
+    if (sanitized.length < 2) return [];
+    final uid = _userId;
+    final rows = await _client
+        .from('posts')
+        .select(_postSelect)
+        .eq('is_anonymous', false)
+        .ilike('content', '%$sanitized%')
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return (rows as List).map((r) => _mapPost(r as Map<String, dynamic>, uid)).toList();
+  }
+
+  Future<List<Post>> fetchPostsByAuthorIds(List<String> authorIds, {int limit = 24}) async {
+    if (authorIds.isEmpty) return [];
+    final uid = _userId;
+    final rows = await _client
+        .from('posts')
+        .select(_postSelect)
+        .eq('is_anonymous', false)
+        .inFilter('author_id', authorIds)
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return (rows as List).map((r) => _mapPost(r as Map<String, dynamic>, uid)).toList();
+  }
+
+  Future<List<Post>> fetchRecentPublicPosts({int limit = 24}) async {
+    final uid = _userId;
+    final rows = await _client
+        .from('posts')
+        .select(_postSelect)
+        .eq('is_anonymous', false)
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return (rows as List).map((r) => _mapPost(r as Map<String, dynamic>, uid)).toList();
+  }
+
+  Future<List<String>> fetchRecentPostContents({int limit = 160}) async {
+    final rows = await _client
+        .from('posts')
+        .select('content')
+        .eq('is_anonymous', false)
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return (rows as List)
+        .map((r) => (r as Map)['content'] as String? ?? '')
+        .where((c) => c.trim().isNotEmpty)
+        .toList();
+  }
+
   Future<List<Post>> fetchPostsByIds(List<String> ids) async {
     if (ids.isEmpty) return [];
     final rows = await _client.from('posts').select(_postSelect).inFilter('id', ids);
@@ -85,6 +141,7 @@ class PostsRepository {
   }) async {
     final uid = _userId;
     if (uid == null) throw Exception('Debes iniciar sesión');
+    KairoContentPolicy.assertText(content);
 
     String? mediaUrl;
     String? mediaType;
@@ -104,21 +161,26 @@ class PostsRepository {
       mediaType = firstVideo ? 'video' : 'image';
     }
 
-    final row = await _client.from('posts').insert({
-      'content': content,
-      'author_id': uid,
-      'is_anonymous': false,
-      'post_kind': postKindToString(postKind),
-      if (mediaUrl != null) 'media_url': mediaUrl,
-      if (mediaType != null) 'media_type': mediaType,
-    }).select(_postSelect).single();
-
-    return _mapPost(row, uid);
+    try {
+      final row = await _client.from('posts').insert({
+        'content': content,
+        'author_id': uid,
+        'is_anonymous': false,
+        'post_kind': postKindToString(postKind),
+        if (mediaUrl != null) 'media_url': mediaUrl,
+        if (mediaType != null) 'media_type': mediaType,
+      }).select(_postSelect).single();
+      return _mapPost(row, uid);
+    } on PostgrestException catch (e) {
+      KairoContentPolicy.throwIfBlocked(e);
+      rethrow;
+    }
   }
 
   Future<Post> updatePostContent(String postId, String content) async {
     final uid = _userId;
     if (uid == null) throw Exception('Debes iniciar sesión');
+    KairoContentPolicy.assertText(content);
 
     final row = await _client
         .from('posts')
@@ -153,7 +215,12 @@ class PostsRepository {
       await _client.from('likes').delete().eq('id', existing['id']);
       return false;
     }
-    await _client.from('likes').insert({'post_id': postId, 'author_id': uid});
+    try {
+      await _client.from('likes').insert({'post_id': postId, 'author_id': uid});
+    } on PostgrestException catch (e) {
+      KairoContentPolicy.throwIfBlocked(e);
+      rethrow;
+    }
     return true;
   }
 
@@ -203,14 +270,19 @@ class PostsRepository {
   Future<Comment> addComment(String postId, String content) async {
     final uid = _userId;
     if (uid == null) throw Exception('Debes iniciar sesión');
+    KairoContentPolicy.assertText(content);
 
-    final row = await _client.from('comments').insert({
-      'post_id': postId,
-      'author_id': uid,
-      'content': content,
-    }).select('id, content, created_at, author:users!comments_author_id_fkey(id, email, name, username, image)').single();
-
-    return Comment.fromJson(row);
+    try {
+      final row = await _client.from('comments').insert({
+        'post_id': postId,
+        'author_id': uid,
+        'content': content,
+      }).select('id, content, created_at, author:users!comments_author_id_fkey(id, email, name, username, image)').single();
+      return Comment.fromJson(row);
+    } on PostgrestException catch (e) {
+      KairoContentPolicy.throwIfBlocked(e);
+      rethrow;
+    }
   }
 
   Future<bool> toggleIntercede(String postId) async {

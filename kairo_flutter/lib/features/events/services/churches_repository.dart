@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/moderation/kairo_content_policy.dart';
 import '../../../core/services/storage_service.dart';
 import '../constants/church_countries.dart';
 import '../models/church_application.dart';
@@ -119,6 +120,8 @@ class ChurchesRepository {
 
     final error = form.validationError();
     if (error != null) throw Exception(error);
+    KairoContentPolicy.assertText(form.name);
+    KairoContentPolicy.assertText(form.responsibleLeader);
 
     final country = churchCountryByCode(form.countryCode);
     if (country == null) throw Exception('País no válido');

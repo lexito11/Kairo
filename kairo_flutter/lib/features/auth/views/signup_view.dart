@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/kairo_colors.dart';
+import '../../../core/utils/username.dart';
 import '../services/auth_service.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/kairo_alert.dart';
@@ -24,7 +25,10 @@ class _SignUpViewState extends State<SignUpView> {
   final _auth = AuthService();
 
   String? _error;
+  String? _info;
   bool _loading = false;
+  bool _resending = false;
+  bool _awaitingEmailConfirmation = false;
 
   @override
   void dispose() {
@@ -50,6 +54,7 @@ class _SignUpViewState extends State<SignUpView> {
 
     setState(() {
       _error = null;
+      _info = null;
       _loading = true;
     });
 
@@ -61,18 +66,36 @@ class _SignUpViewState extends State<SignUpView> {
         username: _username.text.isEmpty ? null : _username.text,
       );
       if (!mounted) return;
-      if (response.session == null) {
-        setState(() {
-          _error =
-              'Cuenta creada. Revisa tu email para confirmarla antes de iniciar sesión.';
-        });
+      if (response.session != null) {
+        context.go('/feed');
         return;
       }
-      context.go('/auth/signin?registered=true');
+      setState(() {
+        _awaitingEmailConfirmation = true;
+        _info =
+            'Cuenta creada. Revisa tu email para confirmarla antes de iniciar sesión.';
+      });
     } catch (e) {
       setState(() => _error = AuthService.mapAuthError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _resendConfirmation() async {
+    setState(() {
+      _error = null;
+      _resending = true;
+    });
+    try {
+      await _auth.resendSignupConfirmation(_email.text);
+      if (!mounted) return;
+      setState(() => _info = 'Te enviamos de nuevo el correo de confirmación.');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = AuthService.mapAuthError(e));
+    } finally {
+      if (mounted) setState(() => _resending = false);
     }
   }
 
@@ -122,10 +145,14 @@ class _SignUpViewState extends State<SignUpView> {
                         children: [
                           if (_error != null)
                             KairoAlert(message: _error!, type: KairoAlertType.error),
+                          if (_info != null)
+                            KairoAlert(message: _info!, type: KairoAlertType.success),
                           KairoTextField(
                             label: 'Nombre',
                             controller: _name,
                             hint: 'Tu nombre',
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.name],
                             enabled: !_loading,
                             validator: (v) =>
                                 (v == null || v.trim().isEmpty) ? 'El nombre es requerido' : null,
@@ -135,7 +162,13 @@ class _SignUpViewState extends State<SignUpView> {
                             label: 'Usuario',
                             controller: _username,
                             hint: 'usuario123 (opcional)',
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.username],
                             enabled: !_loading,
+                            validator: (v) {
+                              if (v == null || v.trim().isEmpty) return null;
+                              return UsernamePolicy.validate(UsernamePolicy.sanitize(v));
+                            },
                           ),
                           const SizedBox(height: 16),
                           KairoTextField(
@@ -143,6 +176,8 @@ class _SignUpViewState extends State<SignUpView> {
                             controller: _email,
                             hint: 'tu@email.com',
                             keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.email],
                             enabled: !_loading,
                             validator: (v) {
                               if (v == null || v.trim().isEmpty) {
@@ -157,6 +192,10 @@ class _SignUpViewState extends State<SignUpView> {
                             label: 'Contraseña',
                             controller: _password,
                             hint: 'Mínimo 6 caracteres',
+                            obscureText: true,
+                            showVisibilityToggle: true,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.newPassword],
                             enabled: !_loading,
                             validator: (v) {
                               if (v == null || v.isEmpty) return 'La contraseña es requerida';
@@ -172,6 +211,10 @@ class _SignUpViewState extends State<SignUpView> {
                             controller: _confirmPassword,
                             hint: 'Confirma tu contraseña',
                             obscureText: true,
+                            showVisibilityToggle: true,
+                            textInputAction: TextInputAction.done,
+                            autofillHints: const [AutofillHints.newPassword],
+                            onFieldSubmitted: (_) => _submit(),
                             enabled: !_loading,
                             validator: (v) =>
                                 (v == null || v.isEmpty) ? 'Confirma tu contraseña' : null,
@@ -182,6 +225,16 @@ class _SignUpViewState extends State<SignUpView> {
                             loading: _loading,
                             onPressed: _submit,
                           ),
+                          if (_awaitingEmailConfirmation) ...[
+                            const SizedBox(height: 12),
+                            TextButton(
+                              onPressed: (_loading || _resending) ? null : _resendConfirmation,
+                              child: Text(
+                                _resending ? 'Reenviando...' : 'Reenviar correo de confirmación',
+                                style: const TextStyle(color: KairoColors.primary400),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 24),
                           Center(
                             child: Text.rich(

@@ -10,36 +10,39 @@ class PrefsService {
   static const _rememberLoginKey = 'remember-login';
   static const _rememberedEmailKey = 'remembered-email';
   static const _rememberedPasswordKey = 'remembered-password';
+  static const _searchRecentsKey = 'search-recents';
+  static const maxSearchRecents = 15;
 
   Future<bool> getRememberLogin() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_rememberLoginKey) ?? false;
   }
 
-  Future<({String email, String password})?> getRememberedCredentials() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool(_rememberLoginKey) != true) return null;
-    final email = prefs.getString(_rememberedEmailKey) ?? '';
-    final password = prefs.getString(_rememberedPasswordKey) ?? '';
-    if (email.isEmpty) return null;
-    return (email: email, password: password);
+  Future<void> _purgeStoredPassword(SharedPreferences prefs) {
+    return prefs.remove(_rememberedPasswordKey);
   }
 
-  Future<void> saveRememberedCredentials({
-    required String email,
-    required String password,
-  }) async {
+  Future<String?> getRememberedEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    await _purgeStoredPassword(prefs);
+    if (prefs.getBool(_rememberLoginKey) != true) return null;
+    final email = prefs.getString(_rememberedEmailKey) ?? '';
+    if (email.isEmpty) return null;
+    return email;
+  }
+
+  Future<void> saveRememberedEmail(String email) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_rememberLoginKey, true);
     await prefs.setString(_rememberedEmailKey, email.trim());
-    await prefs.setString(_rememberedPasswordKey, password);
+    await _purgeStoredPassword(prefs);
   }
 
-  Future<void> clearRememberedCredentials() async {
+  Future<void> clearRememberedEmail() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_rememberLoginKey, false);
     await prefs.remove(_rememberedEmailKey);
-    await prefs.remove(_rememberedPasswordKey);
+    await _purgeStoredPassword(prefs);
   }
 
   Future<List<String>> getSavedPostIds() async {
@@ -62,6 +65,11 @@ class PrefsService {
   Future<bool> isPostSaved(String postId) async {
     final list = await getSavedPostIds();
     return list.contains(postId);
+  }
+
+  Future<void> clearSavedPostIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_savedPostsKey);
   }
 
   Future<String> getTheme() async {
@@ -144,5 +152,35 @@ class PrefsService {
   Future<bool> isPasswordChangeLocked(String userId) async {
     final fails = await getPasswordChangeFails(userId);
     return fails >= passwordChangeMaxAttempts;
+  }
+
+  Future<List<String>> getSearchRecents() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_searchRecentsKey) ?? [];
+  }
+
+  Future<void> addSearchRecent(String query) async {
+    final value = query.trim();
+    if (value.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(_searchRecentsKey) ?? [];
+    list.removeWhere((item) => item.toLowerCase() == value.toLowerCase());
+    list.insert(0, value);
+    if (list.length > maxSearchRecents) {
+      list.removeRange(maxSearchRecents, list.length);
+    }
+    await prefs.setStringList(_searchRecentsKey, list);
+  }
+
+  Future<void> removeSearchRecent(String query) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(_searchRecentsKey) ?? [];
+    list.removeWhere((item) => item.toLowerCase() == query.trim().toLowerCase());
+    await prefs.setStringList(_searchRecentsKey, list);
+  }
+
+  Future<void> clearSearchRecents() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_searchRecentsKey);
   }
 }

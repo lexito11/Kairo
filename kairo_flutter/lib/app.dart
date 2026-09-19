@@ -8,6 +8,7 @@ import 'core/theme/kairo_typography.dart';
 import 'core/widgets/feed_playback_focus_manager.dart';
 import 'features/auth/services/auth_notifier.dart';
 import 'features/auth/services/auth_service.dart';
+import 'features/auth/views/forgot_password_view.dart';
 import 'features/auth/views/reset_password_view.dart';
 import 'features/auth/views/signin_view.dart';
 import 'features/auth/views/signup_view.dart';
@@ -15,6 +16,9 @@ import 'features/chat/views/chat_thread_view.dart';
 import 'features/chat/views/chat_view.dart';
 import 'features/chat/views/group_thread_view.dart';
 import 'features/admin/views/church_requests_admin_view.dart';
+import 'features/admin/views/moderation_admin_view.dart';
+import 'features/auth/views/account_blocked_view.dart';
+import 'features/moderation/views/kairo_official_chat_view.dart';
 import 'features/bible/views/bible_home_view.dart';
 import 'features/bible/views/bible_image_creator_view.dart';
 import 'features/bible/views/bible_reader_view.dart';
@@ -33,6 +37,11 @@ import 'features/personas/views/personas_view.dart';
 import 'features/posts/providers/posts_provider.dart';
 import 'features/profile/views/edit_profile_view.dart';
 import 'features/profile/views/profile_view.dart';
+import 'features/search/views/search_people_screen.dart';
+import 'features/search/views/search_recent_posts_screen.dart';
+import 'features/search/views/search_recents_screen.dart';
+import 'features/search/views/search_screen.dart';
+import 'features/search/views/search_trends_screen.dart';
 import 'features/settings/views/people_settings_view.dart';
 import 'features/settings/views/settings_view.dart';
 import 'features/videos/views/videos_view.dart';
@@ -68,12 +77,18 @@ class _KairoAppState extends State<KairoApp> {
             path.startsWith('/live/') ||
             (path.startsWith('/profile') && path != '/profile/edit') ||
             path == '/bible' ||
-            path.startsWith('/bible/');
+            path.startsWith('/bible/') ||
+            path.startsWith('/search');
 
         if (path == '/auth/reset-password') return null;
         if (AuthService.passwordRecoveryPending && path != '/auth/reset-password') {
           return '/auth/reset-password';
         }
+        if (loggedIn && _authNotifier.accountBlocked) {
+          if (path != '/account-blocked') return '/account-blocked';
+          return null;
+        }
+        if (loggedIn && path == '/') return '/feed';
         if (path == '/live/go' && !loggedIn) return '/auth/signin';
         if (path == '/feed/create' && !loggedIn) return '/auth/signin';
         if (path == '/notifications' && !loggedIn) return '/auth/signin';
@@ -82,6 +97,9 @@ class _KairoAppState extends State<KairoApp> {
         if (path == '/settings/personas' && !loggedIn) return '/auth/signin';
         if (path == '/profile/edit' && !loggedIn) return '/auth/signin';
         if (path == '/admin/churches' && !loggedIn) return '/auth/signin';
+        if (path == '/admin/moderation' && !loggedIn) return '/auth/signin';
+        if (path == '/chat/kairo' && !loggedIn) return '/auth/signin';
+        if (path == '/account-blocked' && !loggedIn) return '/auth/signin';
         if (path.startsWith('/chat/group/') && !loggedIn) return '/auth/signin';
         if (path.startsWith('/chat/') && path != '/chat' && !loggedIn) return '/auth/signin';
         if (loggedIn && isAuth) return '/feed';
@@ -98,11 +116,14 @@ class _KairoAppState extends State<KairoApp> {
           },
         ),
         GoRoute(path: '/auth/signup', builder: (_, __) => const SignUpView()),
+        GoRoute(path: '/auth/forgot-password', builder: (_, __) => const ForgotPasswordView()),
         GoRoute(path: '/auth/reset-password', builder: (_, __) => const ResetPasswordView()),
         GoRoute(path: '/feed', builder: (_, __) => const FeedView()),
         GoRoute(path: '/feed/create', builder: (_, __) => const CreatePostView()),
         GoRoute(path: '/videos', builder: (_, __) => const VideosView()),
         GoRoute(path: '/chat', builder: (_, __) => const ChatView()),
+        GoRoute(path: '/chat/kairo', builder: (_, __) => const KairoOfficialChatView()),
+        GoRoute(path: '/account-blocked', builder: (_, __) => const AccountBlockedView()),
         GoRoute(
           path: '/chat/group/:groupId',
           builder: (context, state) => GroupThreadView(
@@ -122,6 +143,14 @@ class _KairoAppState extends State<KairoApp> {
           path: '/profile',
           builder: (context, state) => ProfileView(userId: state.uri.queryParameters['userId']),
         ),
+        GoRoute(
+          path: '/search',
+          builder: (_, state) => SearchScreen(initialQuery: state.uri.queryParameters['q']),
+        ),
+        GoRoute(path: '/search/recents', builder: (_, __) => const SearchRecentsScreen()),
+        GoRoute(path: '/search/trends', builder: (_, __) => const SearchTrendsScreen()),
+        GoRoute(path: '/search/people', builder: (_, __) => const SearchPeopleScreen()),
+        GoRoute(path: '/search/posts', builder: (_, __) => const SearchRecentPostsScreen()),
         GoRoute(path: '/notifications', builder: (_, __) => const NotificationsView()),
         GoRoute(path: '/personas', builder: (_, __) => const PersonasView()),
         GoRoute(path: '/settings', builder: (_, __) => const SettingsView()),
@@ -151,6 +180,7 @@ class _KairoAppState extends State<KairoApp> {
           builder: (context, state) => WatchLiveView(streamId: state.pathParameters['streamId']!),
         ),
         GoRoute(path: '/admin/churches', builder: (_, __) => const ChurchRequestsAdminView()),
+        GoRoute(path: '/admin/moderation', builder: (_, __) => const ModerationAdminView()),
       ],
     );
     _router.routerDelegate.addListener(_onRouteChanged);

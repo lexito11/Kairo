@@ -1,9 +1,11 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/kairo_colors.dart';
+import '../../moderation/services/reports_repository.dart';
+import '../../moderation/widgets/report_content_sheet.dart';
 import '../constants/church_countries.dart';
 import '../constants/events_constants.dart';
 import '../models/event_data.dart';
@@ -39,7 +41,7 @@ class EventDetailModal extends StatelessWidget {
                 children: [
                   Stack(
                     children: [
-                      CachedNetworkImage(imageUrl: event.image, height: 192, width: double.infinity, fit: BoxFit.cover),
+                      EventCover(imageUrl: event.image, height: 192, width: double.infinity),
                       if (event.isLive) const Positioned(top: 12, left: 12, child: LiveBadge()),
                       Positioned(
                         top: 12,
@@ -71,6 +73,8 @@ class EventDetailModal extends StatelessWidget {
                         const SizedBox(height: 12),
                         Text(event.title, style: const TextStyle(color: KairoColors.darkText, fontSize: 22, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 16),
+                        _InfoRow(icon: Icons.calendar_today_outlined, text: _eventDateLabel(event.date)),
+                        const SizedBox(height: 8),
                         _InfoRow(icon: Icons.access_time, text: event.time),
                         const SizedBox(height: 8),
                         _InfoRow(icon: Icons.location_on_outlined, text: event.location),
@@ -79,38 +83,18 @@ class EventDetailModal extends StatelessWidget {
                         const SizedBox(height: 16),
                         const Text('Descripción', style: TextStyle(color: KairoColors.darkText, fontSize: 16, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 8),
-                        Text(event.description, style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13, height: 1.5)),
-                        const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () => context.read<EventsProvider>().handleAttending(event.id),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: KairoColors.primary500,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  elevation: 0,
-                                ),
-                                child: const Text('Asistiré'),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () {},
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: KairoColors.darkHover,
-                                  foregroundColor: KairoColors.darkText,
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  elevation: 0,
-                                ),
-                                child: const Text('Me interesa'),
-                              ),
-                            ),
-                          ],
+                        Text(
+                          event.description.isEmpty ? 'Sin descripción' : event.description,
+                          style: const TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13, height: 1.5),
+                        ),
+                        TextButton.icon(
+                          onPressed: () => showReportContentSheet(
+                            context,
+                            targetType: ReportTargetType.event,
+                            targetId: event.id,
+                          ),
+                          icon: const Icon(Icons.flag_outlined, size: 16),
+                          label: const Text('Reportar evento'),
                         ),
                       ],
                     ),
@@ -123,6 +107,12 @@ class EventDetailModal extends StatelessWidget {
       ),
     );
   }
+}
+
+String _eventDateLabel(DateTime date) {
+  final d = date.day.toString().padLeft(2, '0');
+  final m = date.month.toString().padLeft(2, '0');
+  return '$d/$m/${date.year}';
 }
 
 class _InfoRow extends StatelessWidget {
@@ -247,27 +237,33 @@ class EventsFilterPanel extends StatelessWidget {
                           }).toList(),
                         ),
                         const SizedBox(height: 24),
-                        const Text('Costo', style: TextStyle(color: KairoColors.darkText, fontWeight: FontWeight.bold, fontSize: 16)),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(child: _FilterOptionButton(label: 'Gratis')),
-                            const SizedBox(width: 8),
-                            Expanded(child: _FilterOptionButton(label: 'De pago')),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
                         const Text('Cuándo', style: TextStyle(color: KairoColors.darkText, fontWeight: FontWeight.bold, fontSize: 16)),
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            Expanded(child: _FilterOptionButton(label: 'Hoy')),
+                            Expanded(
+                              child: _FilterOptionButton(
+                                label: 'Hoy',
+                                selected: provider.dateRange == EventDateRange.today,
+                                onTap: () => provider.setDateRange(EventDateRange.today),
+                              ),
+                            ),
                             const SizedBox(width: 8),
-                            Expanded(child: _FilterOptionButton(label: 'Esta semana')),
+                            Expanded(
+                              child: _FilterOptionButton(
+                                label: 'Esta semana',
+                                selected: provider.dateRange == EventDateRange.week,
+                                onTap: () => provider.setDateRange(EventDateRange.week),
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        _FilterOptionButton(label: 'Este mes'),
+                        _FilterOptionButton(
+                          label: 'Este mes',
+                          selected: provider.dateRange == EventDateRange.month,
+                          onTap: () => provider.setDateRange(EventDateRange.month),
+                        ),
                       ],
                     ),
                   ),
@@ -282,17 +278,42 @@ class EventsFilterPanel extends StatelessWidget {
 }
 
 class _FilterOptionButton extends StatelessWidget {
-  const _FilterOptionButton({required this.label});
+  const _FilterOptionButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(color: KairoColors.darkHover, borderRadius: BorderRadius.circular(8)),
-      child: Text(label, textAlign: TextAlign.center, style: const TextStyle(color: KairoColors.darkText, fontSize: 13, fontWeight: FontWeight.w500)),
+    return Material(
+      color: selected ? KairoColors.primary500.withValues(alpha: 0.25) : KairoColors.darkHover,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: selected ? Border.all(color: KairoColors.primary500.withValues(alpha: 0.5)) : null,
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: selected ? Colors.white : KairoColors.darkText,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1093,6 +1114,33 @@ class EventRequestModal extends StatelessWidget {
                         value: form.description,
                         hint: 'Cuéntanos de qué se trata el evento',
                         onChanged: (v) => provider.updateEventRequestForm(form.copyWith(description: v)),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('Imagen (opcional)', style: TextStyle(color: KairoColors.darkTextSecondary, fontSize: 13, fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: provider.eventSubmitting
+                            ? null
+                            : () async {
+                                final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+                                if (file == null) return;
+                                final bytes = await file.readAsBytes();
+                                provider.updateEventRequestForm(
+                                  form.copyWith(
+                                    imageBytes: bytes,
+                                    imageName: file.name,
+                                    imageMime: 'image/jpeg',
+                                  ),
+                                );
+                              },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: KairoColors.darkText,
+                          side: const BorderSide(color: KairoColors.darkBorder),
+                          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                          alignment: Alignment.centerLeft,
+                        ),
+                        icon: const Icon(Icons.image_outlined, size: 18, color: KairoColors.primary400),
+                        label: Text(form.hasImage ? (form.imageName ?? 'Imagen seleccionada') : 'Elegir imagen'),
                       ),
                       if (provider.eventSubmitError != null) ...[
                         const SizedBox(height: 16),

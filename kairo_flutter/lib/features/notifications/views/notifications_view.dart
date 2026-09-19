@@ -33,9 +33,12 @@ class _NotificationsViewState extends State<NotificationsView> {
     setState(() => _loading = true);
     try {
       final follows = await _usersRepo.getNotifications();
-      final invites = await _groupsRepo.fetchPendingInvites();
+      List<GroupInvite> invites = const [];
+      try {
+        invites = await _groupsRepo.fetchPendingInvites();
+        await _groupsRepo.markInvitesSeen();
+      } catch (_) {}
       await _usersRepo.markNotificationsSeen();
-      await _groupsRepo.markInvitesSeen();
       final summary = await _usersRepo.getSocialSummary();
       if (mounted) {
         context.read<SocialSummaryProvider>().update(

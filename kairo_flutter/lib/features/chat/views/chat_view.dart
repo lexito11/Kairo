@@ -11,9 +11,11 @@ import '../../../core/widgets/kairo_avatar.dart';
 import '../../../core/widgets/main_scaffold.dart';
 import '../../../features/auth/services/auth_service.dart';
 import '../widgets/create_group_sheet.dart';
+import '../widgets/group_avatar.dart';
 import '../widgets/new_message_sheet.dart';
 import '../../messages/services/groups_repository.dart';
 import '../../messages/services/messages_repository.dart';
+import '../../moderation/services/official_messages_repository.dart';
 
 enum _ChatFilter { all, unread, pinned, groups }
 enum _GroupsSection { mine, all }
@@ -28,10 +30,13 @@ class ChatView extends StatefulWidget {
 class _ChatViewState extends State<ChatView> with RouteAware {
   final _repo = MessagesRepository();
   final _groupsRepo = GroupsRepository();
+  final _officialRepo = OfficialMessagesRepository();
   final _prefs = PrefsService();
   final _search = TextEditingController();
 
   List<Conversation> _conversations = [];
+  KairoOfficialMessage? _officialLatest;
+  int _officialUnread = 0;
   List<ChatGroup> _groups = [];
   List<ChatGroup> _allGroups = [];
   int _createdGroupsCount = 0;
@@ -40,6 +45,7 @@ class _ChatViewState extends State<ChatView> with RouteAware {
   _GroupsSection _groupsSection = _GroupsSection.mine;
   bool _loading = true;
   bool _subscribed = false;
+  String? _groupsError;
   RealtimeChannel? _channel;
 
   @override
@@ -80,21 +86,29 @@ class _ChatViewState extends State<ChatView> with RouteAware {
     try {
       final pinned = await _prefs.getPinnedChatIds();
       final list = await _repo.fetchConversations();
+      final official = await _officialRepo.fetchLatest();
+      final officialUnread = await _officialRepo.unreadCount();
       List<ChatGroup> groups = [];
       List<ChatGroup> allGroups = [];
       var createdCount = 0;
+      String? groupsError;
       try {
         groups = await _groupsRepo.fetchMyGroups();
         allGroups = await _groupsRepo.fetchAllGroups();
         createdCount = await _groupsRepo.countCreatedGroups();
-      } catch (_) {}
+      } catch (e) {
+        groupsError = 'No se pudieron cargar los grupos. Revisa tu conexión e inténtalo de nuevo.';
+      }
       if (!mounted) return;
       setState(() {
         _pinnedIds = pinned.toSet();
         _conversations = list;
+        _officialLatest = official;
+        _officialUnread = officialUnread;
         _groups = groups;
         _allGroups = allGroups;
         _createdGroupsCount = createdCount;
+        _groupsError = groupsError;
         _loading = false;
       });
     } catch (_) {
@@ -103,7 +117,7 @@ class _ChatViewState extends State<ChatView> with RouteAware {
   }
 
   int get _unreadTotal =>
-      _conversations.fold<int>(0, (sum, c) => sum + c.unreadCount);
+      _conversations.fold<int>(0, (sum, c) => sum + c.unreadCount) + _officialUnread;
 
   int get _pinnedCount =>
       _conversations.where((c) => _pinnedIds.contains(c.otherUser.id)).length;
@@ -240,6 +254,10 @@ class _ChatViewState extends State<ChatView> with RouteAware {
         isPublic: result.isPublic,
         adminsOnlyChat: result.adminsOnlyChat,
         inviteeIds: result.inviteeIds,
+        description: result.description,
+        imageBytes: result.imageBytes,
+        imageFileName: result.imageFileName,
+        imageMimeType: result.imageMimeType,
       );
       if (!mounted) return;
       setState(() {
@@ -248,6 +266,10 @@ class _ChatViewState extends State<ChatView> with RouteAware {
       });
       await _load();
       _openGroup(group);
+    } on GroupsUnavailableException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } on GroupLimitException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
@@ -353,6 +375,33 @@ class _ChatViewState extends State<ChatView> with RouteAware {
     }
 
     if (_filter == _ChatFilter.groups) {
+      if (_groupsError != null) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _groupsError!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: KairoColors.darkTextSecondary),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _load,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: KairoColors.primary500,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Reintentar'),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
       if (_groupsSection == _GroupsSection.mine) {
         final groups = _filteredGroups;
         if (groups.isEmpty) {
@@ -440,7 +489,7 @@ class _ChatViewState extends State<ChatView> with RouteAware {
     final pinned = _pinnedSection;
     final rest = _messagesSection;
 
-    if (pinned.isEmpty && rest.isEmpty) {
+    if (pinned.isEmpty && rest.isEmpty && _officialLatest == null) {
       return Center(
         child: Text(
           _conversations.isEmpty
@@ -458,6 +507,15 @@ class _ChatViewState extends State<ChatView> with RouteAware {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
         children: [
+          if (_officialLatest != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _OfficialTile(
+                message: _officialLatest!,
+                unread: _officialUnread,
+                onTap: () => context.push('/chat/kairo'),
+              ),
+            ),
           if (pinned.isNotEmpty) ...[
             const _SectionLabel('FIJADOS', color: Color(0xFFFBBF24)),
             ...pinned.map(
@@ -783,6 +841,76 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
+class _OfficialTile extends StatelessWidget {
+  const _OfficialTile({
+    required this.message,
+    required this.unread,
+    required this.onTap,
+  });
+
+  final KairoOfficialMessage message;
+  final int unread;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              const KairoAvatar(name: 'KAIRO', size: 54),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'KAIRO',
+                      style: TextStyle(
+                        color: KairoColors.darkText,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      message.body,
+                      style: const TextStyle(
+                        color: KairoColors.darkTextSecondary,
+                        fontSize: 13,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              if (unread > 0)
+                Container(
+                  margin: const EdgeInsets.only(left: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: const BoxDecoration(
+                    color: KairoColors.primary500,
+                    borderRadius: BorderRadius.all(Radius.circular(10)),
+                  ),
+                  child: Text(
+                    unread > 9 ? '9+' : '$unread',
+                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ConversationTile extends StatelessWidget {
   const _ConversationTile({
     required this.conversation,
@@ -1028,7 +1156,9 @@ class _GroupTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final preview = group.lastMessagePreview ?? 'Sin mensajes aún';
+    final description = group.description?.trim();
+    final preview = group.lastMessagePreview ??
+        ((description != null && description.isNotEmpty) ? description : 'Sin mensajes aún');
 
     return Material(
       color: Colors.transparent,
@@ -1039,15 +1169,7 @@ class _GroupTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
             children: [
-              Container(
-                width: 54,
-                height: 54,
-                decoration: BoxDecoration(
-                  gradient: KairoColors.buttonGradient,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.groups, color: Colors.white, size: 28),
-              ),
+              GroupAvatar(imageUrl: group.imageUrl, size: 54),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
