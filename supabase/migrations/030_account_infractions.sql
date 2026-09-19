@@ -1,8 +1,9 @@
 -- =============================================================================
 -- KAIRO — Confirmed infractions and automatic account block at 4
--- Safe to re-run. English. Paste into the SQL Editor.
+-- Safe to re-run. English. Paste AFTER 029. Then run 031, then 032.
 -- Complements post-publication moderation. Does not change immediate publish.
 -- Does not add pre-moderation.
+-- admin_alert_email is empty until set in kairo_platform_settings.
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -14,7 +15,7 @@ create table if not exists public.kairo_platform_settings (
 );
 
 insert into public.kairo_platform_settings (key, value)
-values ('admin_alert_email', 'alexinholozano10@gmail.com')
+values ('admin_alert_email', '')
 on conflict (key) do nothing;
 
 -- ---------------------------------------------------------------------------
@@ -486,7 +487,7 @@ begin
   select s.value into v_to
   from public.kairo_platform_settings s
   where s.key = 'admin_alert_email';
-  v_to := coalesce(v_to, 'alexinholozano10@gmail.com');
+  v_to := btrim(coalesce(v_to, ''));
 
   for v_inf in
     select i.id, i.content_type, i.content_id, i.category, i.reason, i.created_at, i.media_ref

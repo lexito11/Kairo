@@ -1,6 +1,6 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../theme/kairo_colors.dart';
+import 'kairo_remote_image.dart';
 
 class KairoAvatar extends StatelessWidget {
   const KairoAvatar({
@@ -53,15 +53,13 @@ class KairoAvatar extends StatelessWidget {
 
   Widget _photo(BuildContext context, String url, String initial) {
     final px = (size * MediaQuery.devicePixelRatioOf(context)).round().clamp(32, 256);
-    return CachedNetworkImage(
-      imageUrl: url,
+    return KairoRemoteImage(
+      url: url,
       fit: BoxFit.cover,
       width: size,
       height: size,
       memCacheWidth: px,
       memCacheHeight: px,
-      fadeInDuration: Duration.zero,
-      fadeOutDuration: Duration.zero,
       placeholder: (_, __) => const ColoredBox(color: KairoColors.darkHover),
       errorWidget: (_, __, ___) => _initial(initial),
     );

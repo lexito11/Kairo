@@ -1,2 +1,6 @@
+# moderate-content authenticates with KAIRO_JOB_SECRET (required).
+# verify_jwt stays false so pg_cron/pg_net can call it with the job header
+# without embedding the service_role JWT in SQL. The function refuses to
+# run if KAIRO_JOB_SECRET is unset.
 [functions.moderate-content]
 verify_jwt = false

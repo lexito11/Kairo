@@ -75,6 +75,48 @@ class StorageService {
       throw Exception(e.message);
     }
 
+    // Stable identifier. Display code should call resolveDisplayUrl so a
+    // later private bucket still works. Public URL remains valid while the
+    // bucket is public.
     return _client.storage.from(_bucket).getPublicUrl(path);
   }
+
+  static String? extractObjectPath(String? stored) {
+    if (stored == null) return null;
+    var value = stored.trim();
+    if (value.isEmpty) return null;
+    value = value.split('#').first.split('?').first;
+    final match = RegExp(
+      r'/object/(?:public|sign|authenticated)/media/(.+)$',
+    ).firstMatch(value);
+    if (match != null) {
+      return Uri.decodeComponent(match.group(1)!);
+    }
+    if (value.startsWith('media/')) {
+      return value.substring(6);
+    }
+    if (!value.startsWith('http') && value.contains('/')) {
+      return value;
+    }
+    return null;
+  }
+
+  Future<String> resolveDisplayUrl(String stored) async {
+    final path = extractObjectPath(stored);
+    if (path == null) return stored;
+    final cached = _signedCache[path];
+    final now = DateTime.now();
+    if (cached != null && cached.$2.isAfter(now)) {
+      return cached.$1;
+    }
+    try {
+      final signed = await _client.storage.from(_bucket).createSignedUrl(path, 3600);
+      _signedCache[path] = (signed, now.add(const Duration(minutes: 50)));
+      return signed;
+    } catch (_) {
+      return stored;
+    }
+  }
+
+  static final Map<String, (String, DateTime)> _signedCache = {};
 }

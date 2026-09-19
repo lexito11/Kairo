@@ -831,8 +831,16 @@ grant execute on function public.set_group_admins_only_chat(uuid, boolean) to au
 grant execute on function public.set_group_member_role(uuid, uuid, text) to authenticated;
 
 create or replace function public.group_text_is_blocked(p_text text)
-returns boolean language sql immutable as $$
-  select coalesce(p_text, '') ~* '(porn|xxx|onlyfans|nsfw|hentai|nudes?|nudity|naked|desnud[oa]s?|bikini|lencer[ií]a|ropa interior|underwear|sexting|sexualiz|expl[ií]cit[oa]|contenido sexual)';
+returns boolean
+language plpgsql
+stable
+as $$
+begin
+  if to_regprocedure('public.kairo_text_is_blocked(text)') is not null then
+    return public.kairo_text_is_blocked(p_text);
+  end if;
+  return coalesce(p_text, '') ~* '(porn|xxx|onlyfans|nsfw|hentai|nudes?|nudity|naked|desnud[oa]s?|bikini|lencer[ií]a|ropa interior|underwear|sexting|sexualiz|expl[ií]cit[oa]|contenido sexual)';
+end;
 $$;
 
 create or replace function public.update_chat_group_profile(
@@ -1256,6 +1264,7 @@ commit;
 
 -- Confirmed infractions + automatic block at 4: run migrations/030_account_infractions.sql
 -- Post-publication queue + RLS/storage/email: run migrations/031_post_moderation_security.sql
+-- Queue worker, storage delete, private-bucket prep, OCR RPC: run migrations/032_moderation_hardening.sql
 
 -- =============================================================================
 -- POST-RUN CHECKLIST (manual in the Dashboard):

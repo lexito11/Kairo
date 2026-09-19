@@ -1,6 +1,3 @@
-import 'dart:convert';
-
-import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/moderation/kairo_content_policy.dart';
@@ -162,33 +159,25 @@ class ChurchesRepository {
       'status': 'pending',
     }).select(_churchSelect).single();
 
-    await _notifyAdminByEmail(form);
+    await _notifyAdminByEmail(form, row['id']?.toString());
     return ChurchRecord.fromMap(row);
   }
 
-  static const _adminEmail = 'alexinholozano10@gmail.com';
-
-  Future<void> _notifyAdminByEmail(ChurchFormData form) async {
+  Future<void> _notifyAdminByEmail(ChurchFormData form, String? churchId) async {
     try {
       final country = churchCountryByCode(form.countryCode);
-      await http.post(
-        Uri.parse('https://formsubmit.co/ajax/$_adminEmail'),
-        headers: const {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: jsonEncode({
-          'name': 'KAIRO',
-          '_subject': 'Nueva solicitud de iglesia: ${form.name.trim()}',
-          '_captcha': 'false',
-          'iglesia': form.name.trim(),
-          'denominacion': form.denomination,
-          'ciudad': form.city.trim(),
-          'pais': country?.name ?? form.countryCode,
-          'lider': form.responsibleLeader.trim(),
-          'correo_pastor': form.pastorEmail.trim().toLowerCase(),
-        }),
-      );
+      await _client.rpc('kairo_queue_admin_notice', params: {
+        'p_kind': 'church_request:${churchId ?? _userId}',
+        'p_subject': 'Nueva solicitud de iglesia: ${form.name.trim()}',
+        'p_body': [
+          'Iglesia: ${form.name.trim()}',
+          'Denominacion: ${form.denomination}',
+          'Ciudad: ${form.city.trim()}',
+          'Pais: ${country?.name ?? form.countryCode}',
+          'Lider: ${form.responsibleLeader.trim()}',
+          'Correo pastor: ${form.pastorEmail.trim().toLowerCase()}',
+        ].join('\n'),
+      });
     } catch (_) {}
   }
 

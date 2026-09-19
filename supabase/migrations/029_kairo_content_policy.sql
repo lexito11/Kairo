@@ -1,8 +1,11 @@
 -- =============================================================================
 -- KAIRO — Global content and community policy
 -- Safe to re-run. English. Paste into the SQL Editor.
+-- Order with later files: 029 → 030 → 031 → 032.
 -- Enforces text on write. Reports for users. Logs blocked attempts.
 -- Visual bikini/nudity classification still needs a vision provider.
+-- group_text_is_blocked is an alias of kairo_text_is_blocked. 027/028 must
+-- not replace this with a weaker regex after this file has been applied.
 -- =============================================================================
 
 create table if not exists public.moderation_events (

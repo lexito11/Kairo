@@ -1,7 +1,9 @@
 -- =============================================================================
 -- KAIRO — Post-publication moderation queue, storage takedown, RLS hardening
--- Safe to re-run. English. Paste AFTER 029 and 030.
+-- Safe to re-run. English. Paste AFTER 029 and 030. Then run 032.
 -- Pre-filter stays: rejected writes are NOT infractions.
+-- Compatible with 029/030: only adds columns/tables/functions, does not drop
+-- kairo_text_is_blocked or the 4-strike tables.
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -198,18 +200,19 @@ begin
     return v_paths;
   end if;
 
-  v_url := p_media;
-  if position('/object/public/media/' in v_url) > 0 then
-    v_path := split_part(v_url, '/object/public/media/', 2);
-  elsif position('/object/sign/media/' in v_url) > 0 then
-    v_path := split_part(split_part(v_url, '/object/sign/media/', 2), '?', 1);
+  v_url := split_part(split_part(btrim(p_media), '#', 1), '?', 1);
+  if v_url ~ '/object/(public|sign|authenticated)/media/' then
+    v_path := regexp_replace(v_url, '^.*/object/(public|sign|authenticated)/media/', '');
   elsif position('/storage/v1/object/public/media/' in v_url) > 0 then
     v_path := split_part(v_url, '/storage/v1/object/public/media/', 2);
+  elsif v_url like 'media/%' then
+    v_path := substr(v_url, 7);
   else
     v_path := v_url;
   end if;
 
   v_path := btrim(v_path);
+  v_path := replace(replace(replace(v_path, '%2F', '/'), '%2f', '/'), '%20', ' ');
   if v_path <> '' and v_path not like 'http%' then
     v_paths := array_append(v_paths, v_path);
   end if;
@@ -561,9 +564,8 @@ begin
       reason = trim(p_reason),
       text_blob = null,
       finished_at = now()
-  where content_type = p_content_type
-    and content_id = p_content_id
-     or id = p_queue_id;
+  where (content_type = p_content_type and content_id = p_content_id)
+     or (p_queue_id is not null and id = p_queue_id);
 
   return jsonb_build_object(
     'infraction_id', v_inf.id,

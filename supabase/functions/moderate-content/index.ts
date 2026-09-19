@@ -4,7 +4,7 @@ const VISION_PROVIDER = (Deno.env.get("KAIRO_VISION_PROVIDER") ?? "none").toLowe
 const VISION_KEY = Deno.env.get("KAIRO_VISION_API_KEY") ?? "";
 const VISION_USER = Deno.env.get("KAIRO_VISION_API_USER") ?? "";
 const VISION_SECRET = Deno.env.get("KAIRO_VISION_API_SECRET") ?? "";
-const JOB_SECRET = Deno.env.get("KAIRO_JOB_SECRET") ?? "";
+const JOB_SECRET = (Deno.env.get("KAIRO_JOB_SECRET") ?? "").trim();
 
 type QueueRow = {
   id: string;
@@ -22,6 +22,7 @@ type VisionVerdict = {
   category?: string;
   reason?: string;
   notes: string;
+  visibleText?: string;
 };
 
 function json(data: unknown, status = 200) {
@@ -38,19 +39,39 @@ function serviceClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-function mediaUrls(ref: string | null): string[] {
+function mediaRefs(ref: string | null): string[] {
   if (!ref) return [];
   try {
     const parsed = JSON.parse(ref);
     if (Array.isArray(parsed)) return parsed.filter((u) => typeof u === "string");
   } catch {
-    // single URL
+    // single URL or path
   }
   return [ref];
 }
 
+function extractObjectPath(stored: string): string | null {
+  const value = stored.trim().split("#")[0].split("?")[0];
+  const match = value.match(/\/object\/(?:public|sign|authenticated)\/media\/(.+)$/);
+  if (match?.[1]) return decodeURIComponent(match[1]);
+  if (value.startsWith("media/")) return value.slice(6);
+  if (!value.startsWith("http") && value.includes("/")) return value;
+  return null;
+}
+
 function isVideo(mediaType: string | null, url: string) {
   return (mediaType ?? "").startsWith("video") || /\.(mp4|mov|webm)(\?|$)/i.test(url);
+}
+
+async function signMediaUrl(
+  supabase: ReturnType<typeof serviceClient>,
+  stored: string,
+): Promise<string> {
+  const path = extractObjectPath(stored);
+  if (!path) return stored;
+  const { data, error } = await supabase.storage.from("media").createSignedUrl(path, 600);
+  if (error || !data?.signedUrl) return stored;
+  return data.signedUrl;
 }
 
 async function sightengineCheck(url: string, video: boolean): Promise<VisionVerdict> {
@@ -59,7 +80,7 @@ async function sightengineCheck(url: string, video: boolean): Promise<VisionVerd
   if (!user || !secret) {
     return {
       action: "flagged",
-      notes: "vision_provider=sightengine; missing KAIRO_VISION_API_USER/SECRET",
+      notes: "vision_provider=sightengine; missing KAIRO_VISION_API_USER/SECRET; ocr_not_available",
     };
   }
 
@@ -79,7 +100,7 @@ async function sightengineCheck(url: string, video: boolean): Promise<VisionVerd
   if (!res.ok) {
     return {
       action: "flagged",
-      notes: `sightengine_http_${res.status}; ${JSON.stringify(payload).slice(0, 400)}`,
+      notes: `sightengine_http_${res.status}; ${JSON.stringify(payload).slice(0, 400)}; ocr_not_available`,
     };
   }
 
@@ -92,8 +113,8 @@ async function sightengineCheck(url: string, video: boolean): Promise<VisionVerd
   const bikini = Number(nudity.bikini ?? nudity.swimwear ?? 0);
 
   const notes = video
-    ? `provider=sightengine; mode=video_url_sample; not_full_video_audit; activity=${sexualActivity}; display=${sexualDisplay}; erotica=${erotica}`
-    : `provider=sightengine; mode=image_url; activity=${sexualActivity}; display=${sexualDisplay}; erotica=${erotica}; bikini=${bikini}; underwear=${underwear}`;
+    ? `provider=sightengine; mode=video_url_sample; not_full_video_audit; ocr_not_available; activity=${sexualActivity}; display=${sexualDisplay}; erotica=${erotica}`
+    : `provider=sightengine; mode=image_url; ocr_not_available; activity=${sexualActivity}; display=${sexualDisplay}; erotica=${erotica}; bikini=${bikini}; underwear=${underwear}`;
 
   if (sexualActivity >= 0.45 || sexualDisplay >= 0.45 || erotica >= 0.55) {
     return { action: "confirmed", category: "sexual", reason: "explicit_or_nude", notes };
@@ -114,11 +135,11 @@ async function openaiCheck(url: string, video: boolean): Promise<VisionVerdict> 
   if (video) {
     return {
       action: "flagged",
-      notes: "provider=openai; mode=no_frame_extraction; video_not_fully_scanned",
+      notes: "provider=openai; mode=no_frame_extraction; video_not_fully_scanned; ocr_skipped",
     };
   }
   if (!VISION_KEY) {
-    return { action: "flagged", notes: "vision_provider=openai; missing KAIRO_VISION_API_KEY" };
+    return { action: "flagged", notes: "vision_provider=openai; missing KAIRO_VISION_API_KEY; ocr_not_configured" };
   }
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -134,12 +155,12 @@ async function openaiCheck(url: string, video: boolean): Promise<VisionVerdict> 
         {
           role: "system",
           content:
-            "Classify whether an image violates a Christian community policy. Return JSON {allowed:boolean, category:string, reason:string, confidence:number}. Categories: sexual, nudity, bikini, underwear, sexualPromotion, none. allowed=false only for explicit sexual content, nudity, bikini, underwear, or sexual advertising.",
+            "Classify whether an image violates a Christian community policy. Return JSON {allowed:boolean, category:string, reason:string, confidence:number, visible_text:string}. Categories: sexual, nudity, bikini, underwear, sexualPromotion, none. allowed=false only for explicit sexual content, nudity, bikini, underwear, or sexual advertising. visible_text is any readable text in the image, or empty.",
         },
         {
           role: "user",
           content: [
-            { type: "text", text: "Classify this image." },
+            { type: "text", text: "Classify this image and transcribe visible text." },
             { type: "image_url", image_url: { url } },
           ],
         },
@@ -153,19 +174,27 @@ async function openaiCheck(url: string, video: boolean): Promise<VisionVerdict> 
       notes: `openai_http_${res.status}; ${JSON.stringify(payload).slice(0, 400)}`,
     };
   }
-  let parsed: { allowed?: boolean; category?: string; reason?: string; confidence?: number } = {};
+  let parsed: {
+    allowed?: boolean;
+    category?: string;
+    reason?: string;
+    confidence?: number;
+    visible_text?: string;
+  } = {};
   try {
     parsed = JSON.parse(payload.choices?.[0]?.message?.content ?? "{}");
   } catch {
     return { action: "flagged", notes: "provider=openai; unparseable_response" };
   }
-  const notes = `provider=openai; mode=single_image; confidence=${parsed.confidence ?? "n/a"}`;
+  const visibleText = typeof parsed.visible_text === "string" ? parsed.visible_text.trim() : "";
+  const notes = `provider=openai; mode=single_image+ocr; confidence=${parsed.confidence ?? "n/a"}`;
   if (parsed.allowed === false && (parsed.confidence ?? 0) >= 0.7) {
     return {
       action: "confirmed",
       category: parsed.category ?? "sexual",
       reason: parsed.reason ?? "vision_confirmed",
       notes,
+      visibleText,
     };
   }
   if (parsed.allowed === false) {
@@ -174,27 +203,32 @@ async function openaiCheck(url: string, video: boolean): Promise<VisionVerdict> 
       category: parsed.category,
       reason: parsed.reason,
       notes,
+      visibleText,
     };
   }
-  return { action: "approved", notes };
+  return { action: "approved", notes, visibleText };
 }
 
-async function analyzeMedia(row: QueueRow): Promise<VisionVerdict> {
-  const urls = mediaUrls(row.media_ref);
-  if (urls.length === 0) {
+async function analyzeMedia(
+  supabase: ReturnType<typeof serviceClient>,
+  row: QueueRow,
+): Promise<VisionVerdict> {
+  const refs = mediaRefs(row.media_ref);
+  if (refs.length === 0) {
     return { action: "approved", notes: "no_media_url" };
   }
 
   if (VISION_PROVIDER === "none" || VISION_PROVIDER === "") {
     return {
       action: "flagged",
-      notes: "no_vision_provider; set KAIRO_VISION_PROVIDER=sightengine|openai",
+      notes: "no_vision_provider; ocr_not_configured; set KAIRO_VISION_PROVIDER=openai|sightengine and the matching key; awaiting_admin",
     };
   }
 
   const verdicts: VisionVerdict[] = [];
-  for (const url of urls) {
-    const video = isVideo(row.media_type, url);
+  for (const ref of refs) {
+    const video = isVideo(row.media_type, ref);
+    const url = await signMediaUrl(supabase, ref);
     if (VISION_PROVIDER === "sightengine") {
       verdicts.push(await sightengineCheck(url, video));
     } else if (VISION_PROVIDER === "openai") {
@@ -202,8 +236,26 @@ async function analyzeMedia(row: QueueRow): Promise<VisionVerdict> {
     } else {
       verdicts.push({
         action: "flagged",
-        notes: `unknown_provider=${VISION_PROVIDER}`,
+        notes: `unknown_provider=${VISION_PROVIDER}; ocr_not_configured; awaiting_admin`,
       });
+    }
+  }
+
+  const extracted = verdicts
+    .map((v) => v.visibleText ?? "")
+    .filter((t) => t.length > 0)
+    .join("\n");
+  if (extracted) {
+    const { data, error } = await supabase.rpc("kairo_text_violates_policy", {
+      p_text: extracted,
+    });
+    if (!error && data === true) {
+      return {
+        action: "confirmed",
+        category: "blocked_content",
+        reason: "ocr_text_policy",
+        notes: `${verdicts.map((v) => v.notes).join(" | ")}; ocr_text_blocked`,
+      };
     }
   }
 
@@ -230,7 +282,7 @@ async function processQueue(supabase: ReturnType<typeof serviceClient>) {
   const results = [];
   for (const row of rows) {
     try {
-      const verdict = await analyzeMedia(row);
+      const verdict = await analyzeMedia(supabase, row);
       const { error: doneError } = await supabase.rpc("complete_moderation_job", {
         p_queue_id: row.id,
         p_status: verdict.action,
@@ -268,6 +320,15 @@ async function flushEmail(supabase: ReturnType<typeof serviceClient>) {
   const out = [];
   for (const row of rows) {
     try {
+      if (!row.to_email || !row.to_email.includes("@")) {
+        await supabase.rpc("kairo_mark_admin_email", {
+          p_outbox_id: row.id,
+          p_status: "failed",
+          p_error: "admin_alert_email_not_configured",
+        });
+        out.push({ id: row.id, status: "skipped_no_email" });
+        continue;
+      }
       const res = await fetch(`https://formsubmit.co/ajax/${row.to_email}`, {
         method: "POST",
         headers: {
@@ -317,10 +378,15 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok");
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  if (JOB_SECRET) {
-    const provided = req.headers.get("x-kairo-job-secret") ?? "";
-    if (provided !== JOB_SECRET) return json({ error: "unauthorized" }, 401);
+  if (!JOB_SECRET) {
+    return json({
+      error: "job_secret_required",
+      hint: "Set Edge Function secret KAIRO_JOB_SECRET. The worker will not run without it.",
+    }, 503);
   }
+
+  const provided = req.headers.get("x-kairo-job-secret") ?? "";
+  if (provided !== JOB_SECRET) return json({ error: "unauthorized" }, 401);
 
   try {
     const supabase = serviceClient();

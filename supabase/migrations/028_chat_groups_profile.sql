@@ -20,10 +20,15 @@ alter table public.chat_groups
 
 create or replace function public.group_text_is_blocked(p_text text)
 returns boolean
-language sql
-immutable
+language plpgsql
+stable
 as $$
-  select coalesce(p_text, '') ~* '(porn|xxx|onlyfans|nsfw|hentai|nudes?|nudity|naked|desnud[oa]s?|bikini|lencer[ií]a|ropa interior|underwear|sexting|sexualiz|expl[ií]cit[oa]|contenido sexual)';
+begin
+  if to_regprocedure('public.kairo_text_is_blocked(text)') is not null then
+    return public.kairo_text_is_blocked(p_text);
+  end if;
+  return coalesce(p_text, '') ~* '(porn|xxx|onlyfans|nsfw|hentai|nudes?|nudity|naked|desnud[oa]s?|bikini|lencer[ií]a|ropa interior|underwear|sexting|sexualiz|expl[ií]cit[oa]|contenido sexual)';
+end;
 $$;
 
 create or replace function public.update_chat_group_profile(
